@@ -1,0 +1,9 @@
+{
+  "characters": [
+    {
+      "id": "Jane_Doe",
+      "label": "Jane Doe",
+      "vrm": "./characters/Jane_Doe/Jane_Doe.vrm"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+.idea/
+*.bak
+dump.js
+venv/
+__pycache__/
+.DS_Store
+Downloads/
+*.log
+node_modules/
