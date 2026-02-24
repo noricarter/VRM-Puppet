@@ -17,6 +17,11 @@ from prompt_composer import PromptComposer
 
 _composer = PromptComposer()
 
+# --- IDLE MONITOR STATE ---
+_last_activity_time = time.time()
+_active_actor_id = "Laura_Stevens" # Default
+_bridge_initialized = False
+
 # --- CONFIG ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMP_DIR = os.path.join(PROJECT_ROOT, "web/temp")
@@ -43,15 +48,20 @@ def chat_worker():
                     req_data['actor_id'], 
                     req_data['model'], 
                     req_data['voice_desc'], 
-                    req_data['images']
+                    req_data['images'],
+                    req_data.get('active_context'),
+                    extra_data=req_data.get('extra_data')
                 )
             except Exception as ge:
+                error_msg = f"Generation failed: {str(ge)}"
                 print(f"--- Queue: Generation Error: {ge} ---")
-                streamer.push("error", f"Generation failed: {str(ge)}")
+                streamer.push("error", error_msg)
+                streamer.push("system_warn", {"text": f"🧠 Brain Halt: {error_msg}"})
             
             chat_queue.task_done()
         except Exception as e:
             print(f"--- Queue Worker Critical Error: {e} ---")
+            streamer.push("system_warn", {"text": f"🚨 Queue Worker Failure: {str(e)}"})
             time.sleep(1)
 
 def clean_text_for_speech(text):
@@ -113,9 +123,15 @@ class StreamHandler:
 # Global stream instance (Persistent Singleton)
 streamer = StreamHandler()
 
-def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=None):
+# Background thread disabled per user request
+def idle_monitor():
+    pass
+
+def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=None, active_context=None, extra_data=None):
     """Background thread function to generate text and stream audio chunks."""
-    # streamer = StreamHandler() # REMOVED: Never replace the global singleton!
+    global _last_activity_time
+    _last_activity_time = time.time() # Update activity on start
+    
     print(f"--- Chat Stream Started for {actor_id} ---")
     
     # 1. Update Stats (Energy Cost)
@@ -123,23 +139,56 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
     new_energy = max(0, stats.get('energy', 1.0) - 0.05)
     db_manager.set_actor_stats(actor_id, stats.get('stamina', 1.0), new_energy, stats.get('mood', 'Neutral'))
     
+    # 2. Re-build System Prompt (Ensure latest interests/mood are used)
+    # We find the 'trigger message' which is usually the last one
+    trigger_message = messages[-1]['content'] if messages else ""
+    
+    # We remove any previous system messages to avoid clutter
+    clean_history = [m for m in messages if m['role'] != 'system']
+    
+    lib_str = format_action_library()
+    known_contexts = db_manager.kg_get_contexts(actor_id)
+    
+    # Determine active context if not fixed
+    if not active_context:
+        if trigger_message.startswith('[OBSERVER_PULSE]') or trigger_message.startswith('[AUDIOBOOK_PULSE]'):
+            active_context = db_manager.get_reality(f"observer_context_{actor_id}") or "observer"
+        else:
+            active_context = "user_dialogue"
+
+    full_system_msg = _composer.build_system_prompt(
+        actor_id=actor_id,
+        message=trigger_message,
+        action_library_str=lib_str,
+        legacy_persona=db_manager.get_actor_trait(actor_id, "persona", "You are a helpful AI."),
+        legacy_background=db_manager.get_actor_trait(actor_id, "background_memory", ""),
+        extra_context=extra_data.get('extra_context') if extra_data else None,
+        known_contexts=known_contexts,
+        active_context=active_context,
+    )
+    
+    # Assemble final payload for Ollama
+    ollama_messages = [{"role": "system", "content": full_system_msg}] + clean_history
+
     ollama_url = "http://localhost:11434/api/chat"
-    # If images were provided, attach them to the LAST user message in the payload
-    # Ollama vision models expect "images": ["base64_data"] inside a message object
-    if images and len(messages) > 0:
-        # We find the last user message and attach the images
-        for i in range(len(messages) - 1, -1, -1):
-            if messages[i]['role'] == 'user':
-                messages[i]['images'] = images
-                print(f"--- Vision: Attached {len(images)} image(s) to prompt ---")
+    # If images were provided, attach them to the LAST user message
+    if images and len(ollama_messages) > 0:
+        for i in range(len(ollama_messages) - 1, -1, -1):
+            if ollama_messages[i]['role'] == 'user':
+                ollama_messages[i]['images'] = images
                 break
 
     ollama_payload = {
         "model": requested_model,
-        "messages": messages,
+        "messages": ollama_messages,
         "format": "json",
         "stream": False,
-        "keep_alive": -1
+        "keep_alive": -1,
+        "options": {
+            "temperature": 0.85,       # Slight reduction keeps her coherent; default is 0.8–1.0
+            "repeat_penalty": 1.15,    # Penalises repeating tokens/phrases; 1.0 = off, >1 = stronger
+            "repeat_last_n": 128,      # How many tokens back to scan for repetition
+        }
     }
     
     ai_full_text = ""
@@ -156,7 +205,9 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                 raw_json = result_data.get('message', {}).get('content', '{}')
         except urllib.error.HTTPError as he:
             if he.code == 404:
-                print(f"!!! Model '{requested_model}' not found in Ollama. Attempting auto-fallback...")
+                warn_msg = f"Model '{requested_model}' not found in Ollama."
+                print(f"!!! {warn_msg} Attempting auto-fallback...")
+                streamer.push("system_warn", {"text": f"⚠️ {warn_msg} Trying fallback..."})
                 try:
                     tags_req = urllib.request.Request("http://localhost:11434/api/tags")
                     with urllib.request.urlopen(tags_req) as tags_resp:
@@ -165,18 +216,25 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                         if available:
                             fallback_name = available[0].get('name')
                             print(f"--- Fallback: Retrying with '{fallback_name}' ---")
+                            streamer.push("system_warn", {"text": f"🔄 Falling back to: {fallback_name}"})
                             ollama_payload['model'] = fallback_name
                             req = urllib.request.Request(ollama_url, data=json.dumps(ollama_payload).encode('utf-8'))
                             with urllib.request.urlopen(req) as resp2:
                                 res2_data = json.loads(resp2.read().decode('utf-8'))
                                 raw_json = res2_data.get('message', {}).get('content', '{}')
                         else:
-                            raise Exception("No models available in Ollama.")
+                            raise Exception("No fallback models found.")
                 except Exception as fe:
                     print(f"Fallback Failed: {fe}")
+                    streamer.push("system_warn", {"text": f"❌ All Brain Fallbacks failed: {str(fe)}"})
                     raise he
             else:
                 raise he
+        except Exception as oe:
+            print(f"Ollama Connection Error: {oe}")
+            streamer.push("system_warn", {"text": f"🌐 Ollama Connection Error: {str(oe)}"})
+            streamer.push("error", f"Brain disconnect: {str(oe)}")
+            raise oe
 
         try:
             print(f"Raw Response: {raw_json}")
@@ -184,33 +242,40 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
             # --- Robust JSON Extraction ---
             # LLMs sometimes add markdown blocks or trailing text
             start_idx = raw_json.find('{')
-            end_idx = raw_json.rfind('}') + 1
-            if start_idx != -1 and end_idx != -1:
-                clean_json_str = raw_json[start_idx:end_idx]
+            end_idx = raw_json.rfind('}')
+            if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
+                clean_json_str = raw_json[start_idx:end_idx+1]
             else:
                 clean_json_str = raw_json
 
             try:
                 reasoning_data = json.loads(clean_json_str)
-                ai_full_text = reasoning_data.get('response', '')
-                thought = reasoning_data.get('thought', 'Thinking...')
-                intent = reasoning_data.get('physical_intent', '')
-                selection_type = reasoning_data.get('selection_type', 'no_action')
-                selected_action = reasoning_data.get('action')
-                confidence = reasoning_data.get('confidence', 0)
             except Exception as je:
-                print(f"!!! Final Parsing Error: {je}")
-                # We stop trying to "rescue" it with bad regex. 
-                # If the AI breaks the format, we let the user see the raw failure 
-                # or a simple fallback, so we know the prompt needs work.
-                ai_full_text = "I'm having some trouble focusing my thoughts. Could you say that again?"
-                thought = "JSON parsing failed."
-                intent = "None"
-                selection_type = "no_action"
-                selected_action = None
-                confidence = 0
+                print(f"JSON Parse Error: {je}")
+                print(f"Raw was: {raw_json}")
+                streamer.push("system_warn", {"text": f"🧩 Brain Salad (JSON Error): {str(je)}"})
+                # Attempt to use regex as a last resort
+                found_response = re.search(r'"response":\s*"(.*?)"', raw_json, re.DOTALL)
+                if found_response:
+                    reasoning_data = {"response": found_response.group(1), "response_mode": "speak"}
+                    streamer.push("system_warn", {"text": "🩹 Recovered dialogue via regex fallback."})
+                else:
+                    reasoning_data = {}
 
-            print(f"--- AI Response: {ai_full_text} ---")
+            # --- Response Repair Layer ---
+            # Some models hallucinate keys like "text" or "dialogue"
+            ai_full_text = reasoning_data.get('response') or reasoning_data.get('text') or reasoning_data.get('dialogue') or ""
+            
+            thought = reasoning_data.get('thought', 'Thinking...')
+            intent = reasoning_data.get('physical_intent', '')
+            selection_type = reasoning_data.get('selection_type', 'no_action')
+            selected_action = reasoning_data.get('action')
+            confidence = reasoning_data.get('confidence', 0)
+            response_mode = reasoning_data.get('response_mode', 'speak')
+            
+            # Safe extraction for fields that might be explicitly returned as `null` by the LLM
+            memory_note = reasoning_data.get('memory_note')
+            memory_note = memory_note.strip() if memory_note else ''
             
             # Enforce Threshold for execution only
             if selection_type == 'appropriate_action' and (not selected_action or confidence < 0.7):
@@ -218,7 +283,7 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                 selection_type = 'missing_action' # Downgrade if confidence is low
                 thought += " (Downgraded to missing: Confidence below threshold or no file)"
             
-            # Push reasoning info to UI early
+            # Push reasoning info to UI early, BEFORE any blocking calls
             streamer.push("reasoning", {
                 "thought": thought,
                 "intent": intent,
@@ -241,46 +306,110 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
 
         print(f"Assistant Thought: {thought}")
         print(f"Assistant (Dialogue Only): {ai_full_text}")
-        db_manager.log_dialogue(actor_id, "assistant", ai_full_text)
-        
-        # 3. SPLIT INTO PARAGRAPHS
-        import re
-        # Split by one or more newlines to respect paragraph breaks
-        raw_paragraphs = re.split(r'\n+', ai_full_text)
-        
-        for i, raw_para in enumerate(raw_paragraphs):
-            clean_para = clean_text_for_speech(raw_para)
-            if not clean_para or len(clean_para) < 2:
-                continue
-                
-            print(f"--- Processing Chunk {i+1} (Paragraph): {clean_para[:50]}... ---")
-            
-            # Generate Audio
-            audio_id = f"stream_{int(time.time())}_{i}"
-            wav_path = os.path.join(TEMP_DIR, f"{audio_id}.wav")
-            
-            # Fetch reference audio for cloning if it exists
-            voice_ref = db_manager.get_actor_trait(actor_id, "voice_reference_audio", None)
-            
-            try:
-                tts_engine.generate(clean_para, wav_path, voice_reference_audio=voice_ref)
-            except Exception as e:
-                print(f"TTS Fail: {e}")
-                streamer.push("error", f"TTS Failed: {e}")
-                continue
+        print(f"Assistant Response Mode: {response_mode}")
 
-            # Generate Visemes
-            vis_path = os.path.join(TEMP_DIR, f"{audio_id}_visemes.json")
-            process_audio_for_lipsync(wav_path, vis_path)
+        # --- RESPONSE MODE ROUTING ---
+        will_speak  = response_mode in ('speak', 'speak_and_absorb')
+        will_absorb = response_mode in ('absorb', 'speak_and_absorb')
+
+        # A. Store spoken dialogue in history (only when actually speaking)
+        if will_speak and ai_full_text.strip():
+            db_manager.log_dialogue(actor_id, "assistant", ai_full_text)
+
+        # B. Store memory note + handle KG self-write (absorb paths)
+        if will_absorb and memory_note:
+            print(f"--- Memory Absorbed: {memory_note} ---")
+            db_manager.log_dialogue(actor_id, "memory", memory_note)
+            streamer.push("thinking", {"note": memory_note})
+
+        # C. KG Self-Write (optional, only when absorbing)
+        if will_absorb:
+            kg_entry = reasoning_data.get('kg_entry')
+            if kg_entry and isinstance(kg_entry, dict):
+                subj   = kg_entry.get('subject', '').strip()
+                stype  = kg_entry.get('subject_type', '').strip()
+                src    = kg_entry.get('source_context', '').strip()
+                desc   = kg_entry.get('description', '').strip()
+                rel    = kg_entry.get('relation', '').strip()
+                obj    = kg_entry.get('object', '').strip()
+
+                # Validate required fields
+                missing = [f for f, v in [('subject', subj), ('subject_type', stype), ('source_context', src)] if not v]
+                if missing:
+                    warn = f"KG entry missing required fields: {', '.join(missing)}"
+                    print(f"--- [KG WARN] {warn} ---")
+                    streamer.push("system_warn", {"text": warn, "entry": kg_entry})
+                else:
+                    # Validate source context:
+                    # Accept: always-valid builtins, existing DB contexts, OR any new
+                    # well-formed "type:Title" string (allows creating new contexts on the fly).
+                    # Reject: malformed strings with spaces, missing colon, or garbage chars.
+                    import re as _re
+                    always_valid = {'user_dialogue', 'manual', 'observer'}
+                    known_contexts_now = db_manager.kg_get_contexts(actor_id)
+                    _valid_format = bool(_re.match(r'^[a-zA-Z0-9_]+:[a-zA-Z0-9_]+$', src))
+                    _is_valid = src in always_valid or src in known_contexts_now or _valid_format
+
+                    if not _is_valid:
+                        warn = f"Malformed source_context '{src}'. Use format type:Title (e.g. show:Death_Note, audiobook:Dune)"
+                        print(f"--- [KG WARN] {warn} ---")
+                        streamer.push("system_warn", {"text": warn, "entry": kg_entry})
+
+                    else:
+                        try:
+                            sid = db_manager.kg_add_subject(
+                                actor_id, subj, stype,
+                                description=desc or None,
+                                source=src, confidence=0.85
+                            )
+                            if rel and obj:
+                                db_manager.kg_add_relation(
+                                    actor_id, sid, rel,
+                                    object_literal=obj, source=src
+                                )
+                            confirm = f"{subj} [{stype}, ctx: {src}]"
+                            if rel and obj:
+                                confirm += f" → {rel} → {obj}"
+                            print(f"--- [KG WRITE] {confirm} ---")
+                            streamer.push("kg_write", {"text": confirm, "entry": kg_entry})
+                        except Exception as ke:
+                            warn = f"KG write failed: {ke}"
+                            print(f"--- [KG ERROR] {warn} ---")
+                            streamer.push("system_warn", {"text": warn})
+
+        # C. TTS pipeline — only when speaking
+        if will_speak and ai_full_text.strip():
+            import re
+            raw_paragraphs = re.split(r'\n+', ai_full_text)
             
-            # Push Event
-            streamer.push("audio", {
-                "audioUrl": f"./temp/{audio_id}.wav",
-                "visemeUrl": f"./temp/{audio_id}_visemes.json",
-                "text": raw_para,
-                "stats": {"energy": new_energy}
-            })
-            
+            for i, raw_para in enumerate(raw_paragraphs):
+                clean_para = clean_text_for_speech(raw_para)
+                if not clean_para or len(clean_para) < 2:
+                    continue
+                    
+                print(f"--- Processing Chunk {i+1} (Paragraph): {clean_para[:50]}... ---")
+                
+                audio_id = f"stream_{int(time.time())}_{i}"
+                wav_path = os.path.join(TEMP_DIR, f"{audio_id}.wav")
+                voice_ref = db_manager.get_actor_trait(actor_id, "voice_reference_audio", None)
+                
+                try:
+                    tts_engine.generate(clean_para, wav_path, voice_reference_audio=voice_ref)
+                except Exception as e:
+                    print(f"TTS Fail: {e}")
+                    streamer.push("error", f"TTS Failed: {e}")
+                    continue
+
+                vis_path = os.path.join(TEMP_DIR, f"{audio_id}_visemes.json")
+                process_audio_for_lipsync(wav_path, vis_path)
+                
+                streamer.push("audio", {
+                    "audioUrl": f"./temp/{audio_id}.wav",
+                    "visemeUrl": f"./temp/{audio_id}_visemes.json",
+                    "text": raw_para,
+                    "stats": {"energy": new_energy}
+                })
+
         # 4. Finish
         streamer.push("done", {})
         print("--- Stream Complete ---")
@@ -368,6 +497,16 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
                     break
             print("--- SSE Stream Closed ---")
 
+        elif self.path == '/kg_contexts':
+            # GET /kg_contexts?actor_id=Laura_Stevens
+            actor_id_param = urllib.parse.urlparse(self.path)
+            from urllib.parse import parse_qs
+            qs = parse_qs(urllib.parse.urlparse(self.path).query)
+            aid = (qs.get('actor_id') or [''])[0] or 'Laura_Stevens'
+            contexts = db_manager.kg_get_contexts(aid)
+            self._set_headers()
+            self.wfile.write(json.dumps({'contexts': contexts}).encode('utf-8'))
+
         elif self.path == '/scan_animations':
             unindexed = scan_and_clean_animations()
             self._set_headers()
@@ -430,68 +569,33 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
             try:
                 # --- REGION 1: Reality Update ---
                 db_manager.set_reality("active_actor", actor_id)
-                stats = db_manager.get_actor_stats(actor_id)
-                stamina = stats.get('stamina', 1.0)
-                energy = stats.get('energy', 1.0)
-                mood = stats.get('mood', 'Neutral')
-
+                global _active_actor_id, _last_activity_time
+                _active_actor_id = actor_id
+                _last_activity_time = time.time()
+                
                 # --- REGION 3: Memory Logging (User) ---
                 db_manager.log_dialogue(actor_id, "user", user_message)
 
-                # --- REGION 3: Context Retrieval & Memory Management ---
-                background_mem = db_manager.get_actor_trait(actor_id, "background_memory", "")
+                # --- REGION 3: History Retrieval ---
                 history = db_manager.get_recent_history(actor_id, limit=15)
                 
-                # LAUNCH BACKGROUND MEMORY CONSOLIDATION (Disabled for Latency)
-                # def run_memory_maintenance():
-                #     if len(history) >= 12:
-                #         print(f"--- Brain Tool: Starting background memory extraction for {actor_id} ---")
-                #         range_str = f"recent_compression_{int(time.time())}"
-                #         try:
-                #             brain_tool.extract_concepts(actor_id, range_str, data.get('model'))
-                #             brain_tool.refine_memory(actor_id, data.get('model'))
-                #         except Exception as e:
-                #             print(f"--- Brain Tool: Background error: {e}")
-
-                # if len(history) >= 12:
-                #     threading.Thread(target=run_memory_maintenance, daemon=True).start()
-
-                # 4. Construct Final Messages Payload
-                messages_payload = []
-
-                # A. System Instructions — assembled by PromptComposer
-                lib_str = format_action_library()
-                full_system_msg = _composer.build_system_prompt(
-                    actor_id=actor_id,
-                    message=user_message,
-                    action_library_str=lib_str,
-                    legacy_persona=persona,
-                    legacy_background=background_mem,
-                    extra_context=data.get('extra_context'),  # RAG Phase 2 hook
-                )
-
-                messages_payload.append({"role": "system", "content": full_system_msg})
-
-                # B. History (The Memory)
-                # If history was just compressed by background thread, we should cap it here
-                visible_history = history[-10:] if len(history) > 10 else history
-                for h in visible_history:
-                    messages_payload.append({"role": h['role'], "content": h['content']})
-
                 # --- START BACKGROUND STREAMING ---
                 requested_model = data.get('model')
-                images = data.get('images', []) # Added mission support
+                images = data.get('images', [])
 
                 if not requested_model:
                     requested_model = db_manager.get_actor_trait(actor_id, "llm_model", "fimbulvetr-v2.1:latest")
 
                 # --- PUSH TO SERIAL QUEUE ---
                 chat_queue.put({
-                    "messages": messages_payload,
+                    "messages": history,
                     "actor_id": actor_id,
                     "model": requested_model,
                     "voice_desc": voice_desc,
-                    "images": images
+                    "images": images,
+                    "extra_data": {
+                        "extra_context": data.get('extra_context')
+                    }
                 })
                 
                 # Return success immediately so client can subscribe to SSE
@@ -741,6 +845,8 @@ def run_server(port=8001):
     httpd = ThreadingHTTPServer(server_address, ChatBridgeHandler)
     # Start Chat Worker Thread
     threading.Thread(target=chat_worker, daemon=True).start()
+    # Start Idle Monitor Thread
+    threading.Thread(target=idle_monitor, daemon=True).start()
     
     print(f"--- Chat Bridge running on port {port} ---")
     print("Pre-requisite: ComfyUI must be running on port 8188.")

@@ -10,10 +10,13 @@ const state = {
     menuOpen: false,
     hudVisible: true,
     chatVisible: false,
+    mindVisible: false,
     isStreaming: false,
     isListening: false,
     handsFreeActive: false,
-    attachedImage: null // Base64 string of the attached image
+    attachedImage: null,    // Base64 string of the attached image
+    pendingMessage: null,   // Queued message to send after current stream finishes
+    pendingImage: null      // Queued image to send after current stream finishes
 };
 
 // --- DOM Elements ---
@@ -26,6 +29,8 @@ const chatModal = document.getElementById("chat-modal");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
 const chatMessages = document.getElementById("chat-messages");
+const mindModal = document.getElementById("mind-modal");
+const mindLog = document.getElementById("mind-log");
 
 const formFields = {
     actorId: document.getElementById("actor-id"),
@@ -54,15 +59,25 @@ async function initHUD() {
 
     // 3. Setup Draggable
     setupDraggable(chatModal, document.getElementById("chat-handle"));
+    setupDraggable(mindModal, document.getElementById("mind-handle"));
 
     // 4. Setup Chat Form
     chatForm.addEventListener("submit", async (e) => {
         e.preventDefault();
-        if (state.isStreaming) return;
 
         const text = chatInput.value.trim();
         // Allow sending if there's an image even without text
         if (!text && !state.attachedImage) return;
+
+        // If already streaming, queue this message for after the current response
+        if (state.isStreaming) {
+            state.pendingMessage = text;
+            state.pendingImage = state.attachedImage;
+            chatInput.value = "";
+            window.clearAttachedImage();
+            addChatMessage("system", "⏳ Queued — will send after current response.");
+            return;
+        }
 
         addChatMessage("user", text, state.attachedImage);
         chatInput.value = "";
@@ -209,7 +224,16 @@ async function initHUD() {
 
     // --- Global STT Auto-Submit ---
     window.autoSubmitTranscription = (text) => {
-        if (!text || state.isStreaming) return;
+        if (!text) return;
+        if (state.isStreaming) {
+            // Queue it — don't silently drop hands-free speech during a response.
+            // Preserve any screenshot that's already attached so they stay bundled.
+            state.pendingMessage = text;
+            state.pendingImage = state.attachedImage;
+            if (state.attachedImage) window.clearAttachedImage();
+            addChatMessage("system", "⏳ Queued — will send after current response.");
+            return;
+        }
         chatInput.value = text;
         chatForm.dispatchEvent(new Event('submit'));
     };
@@ -433,10 +457,43 @@ function setupDraggable(el, handle) {
     }
 }
 
+// --- Mind Monitor ---
+window.toggleMindModal = (force) => {
+    const show = (force !== undefined) ? force : !state.mindVisible;
+    state.mindVisible = show;
+    mindModal.classList.toggle('modal-hidden', !show);
+};
+
+function addMindEntry(type, text) {
+    const entry = document.createElement('div');
+    entry.className = `mind-entry ${type}`;
+    entry.textContent = text;
+    mindLog.appendChild(entry);
+    mindLog.scrollTop = mindLog.scrollHeight;
+    // Keep log to last 200 entries to avoid memory creep
+    while (mindLog.children.length > 200) {
+        mindLog.removeChild(mindLog.firstChild);
+    }
+}
+
 // --- Chat Communication (Mixer Bridge Logic) ---
 
+// Flush any pending message queued while a stream was active
+function _flushPendingMessage() {
+    if (state.pendingMessage !== null || state.pendingImage !== null) {
+        const msg = state.pendingMessage;
+        const img = state.pendingImage;
+        state.pendingMessage = null;
+        state.pendingImage = null;
+        if (msg || img) {
+            addChatMessage("user", msg || "", img);
+            handleCharacterChat(msg || "", img);
+        }
+    }
+}
+
 async function handleCharacterChat(text, imageJson) {
-    if (!text) return;
+    if (!text && !imageJson) return;
     console.log("[HUD] Chatting with Bridge. Image attached:", !!imageJson);
     state.isStreaming = true;
 
@@ -480,6 +537,7 @@ async function handleCharacterChat(text, imageJson) {
             console.warn("[HUD] SSE Watchdog Triggered: Stream hanging...");
             eventSource.close();
             state.isStreaming = false;
+            _flushPendingMessage();
         }, 15000);
 
         const resetWatchdog = () => {
@@ -498,7 +556,20 @@ async function handleCharacterChat(text, imageJson) {
 
             switch (msg.type) {
                 case "reasoning":
-                    console.log("[HUD] Character Thinking:", msg.data.thought);
+                    addMindEntry("reasoning", "💭 " + msg.data.thought);
+                    break;
+                case "thinking":
+                    // Absorb mode: she processed but didn't speak
+                    addChatMessage("thinking", msg.data.note);
+                    addMindEntry("thinking", "🔇 " + msg.data.note);
+                    // Fire thinking animation so her body reacts
+                    viewer.playIdleAnimation("assets/animations/idle/oneshot/fbx/thinking.fbx", { loop: false });
+                    break;
+                case "kg_write":
+                    addMindEntry("kg_write", "✅ KG: " + msg.data.text);
+                    break;
+                case "system_warn":
+                    addMindEntry("system_warn", "⚠️ " + msg.data.text);
                     break;
                 case "action":
                     console.log("[HUD] Playing Action:", msg.data.url);
@@ -527,6 +598,7 @@ async function handleCharacterChat(text, imageJson) {
                     clearTimeout(watchdog);
                     eventSource.close();
                     state.isStreaming = false;
+                    _flushPendingMessage();
                     break;
                 case "error":
                     console.error("[HUD] Stream Error:", msg.data);
@@ -534,6 +606,7 @@ async function handleCharacterChat(text, imageJson) {
                     clearTimeout(watchdog);
                     eventSource.close();
                     state.isStreaming = false;
+                    _flushPendingMessage();
                     break;
             }
         };
@@ -543,6 +616,7 @@ async function handleCharacterChat(text, imageJson) {
             clearTimeout(watchdog);
             eventSource.close();
             state.isStreaming = false;
+            _flushPendingMessage();
         };
 
     } catch (err) {
@@ -576,9 +650,43 @@ window.clearAttachedImage = () => {
     document.getElementById("image-preview").src = "";
 };
 
+// --- Screenshot Hotkey Handler (called from Python via Ctrl+Shift+S) ---
+window.injectScreenshot = (b64) => {
+    if (!b64) return;
+    console.log("[HUD][Hotkey] Injecting screenshot into chat...");
+
+    // Attach the image to state (same as drag-and-drop)
+    state.attachedImage = b64;
+    const container = document.getElementById("image-preview-container");
+    const img = document.getElementById("image-preview");
+    img.src = `data:image/jpeg;base64,${b64}`;
+    container.classList.remove("preview-hidden");
+
+    // Ensure chat is open
+    if (!state.chatVisible) {
+        window.toggleChatModal(true);
+    }
+
+    // In hands-free mode: don't auto-submit yet — the screenshot stays attached
+    // and will be bundled with the next voice transcription automatically.
+    // (chatForm submit reads state.attachedImage, so it combines text + image.)
+    if (state.handsFreeActive) {
+        console.log("[HUD][Hotkey] Hands-free: screenshot attached, waiting for voice to bundle.");
+    }
+    // In manual mode: preview is shown, user adds text and presses Enter.
+};
+
 function addChatMessage(role, text, imageBase64) {
     const div = document.createElement("div");
     div.className = `message ${role}`;
+
+    // Thought-bubble style for absorbed memories
+    if (role === "thinking") {
+        const icon = document.createElement("span");
+        icon.textContent = "💭 ";
+        div.appendChild(icon);
+    }
+
 
     if (imageBase64) {
         const img = document.createElement("img");

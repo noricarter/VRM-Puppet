@@ -320,6 +320,19 @@ hr {
     max-width: 100%;
 }
 
+.message.thinking {
+    align-self: flex-start;
+    background: transparent;
+    color: #94a3b8;
+    font-style: italic;
+    font-size: 0.85em;
+    padding: 4px 10px;
+    border-left: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: none;
+    max-width: 90%;
+}
+
+
 @keyframes slideIn {
     from {
         opacity: 0;
@@ -360,7 +373,8 @@ hr {
 
 #chat-input {
     flex-grow: 1;
-    min-width: 0; /* Critical for flex blowout */
+    min-width: 0;
+    /* Critical for flex blowout */
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-glass);
     border-radius: 6px;
@@ -453,3 +467,108 @@ hr {
 
 
 /* Run Init */
+
+/* --- Mind Monitor Modal --- */
+#mind-modal {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    width: 340px;
+    height: 380px;
+    background: rgba(10, 14, 26, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(100, 200, 255, 0.15);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7);
+    z-index: 50;
+    transition: opacity 0.3s;
+    pointer-events: auto;
+}
+
+#mind-modal.modal-hidden {
+    display: none;
+    opacity: 0;
+}
+
+#mind-header {
+    background: rgba(100, 200, 255, 0.06);
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(100, 200, 255, 0.12);
+}
+
+#mind-handle {
+    cursor: move;
+    font-size: 12px;
+    font-weight: 600;
+    color: #64c8ff;
+    flex-grow: 1;
+    letter-spacing: 0.05em;
+}
+
+#mind-close {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 20px;
+    padding: 0 5px;
+    line-height: 1;
+}
+
+#mind-log {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+#mind-log::-webkit-scrollbar {
+    width: 4px;
+}
+
+#mind-log::-webkit-scrollbar-thumb {
+    background: rgba(100, 200, 255, 0.15);
+    border-radius: 4px;
+}
+
+.mind-entry {
+    padding: 5px 8px;
+    border-radius: 6px;
+    line-height: 1.4;
+    animation: slideIn 0.2s ease;
+}
+
+.mind-entry.reasoning {
+    color: #7ab8d4;
+    border-left: 2px solid rgba(120, 180, 220, 0.3);
+    background: rgba(120, 180, 220, 0.04);
+}
+
+.mind-entry.thinking {
+    color: #aaaacc;
+    font-style: italic;
+    border-left: 2px solid rgba(170, 170, 200, 0.25);
+    background: rgba(170, 170, 200, 0.04);
+}
+
+.mind-entry.kg_write {
+    color: #5de0a0;
+    border-left: 2px solid rgba(93, 224, 160, 0.4);
+    background: rgba(93, 224, 160, 0.05);
+}
+
+.mind-entry.system_warn {
+    color: #f0a050;
+    border-left: 2px solid rgba(240, 160, 80, 0.4);
+    background: rgba(240, 80, 40, 0.06);
+}

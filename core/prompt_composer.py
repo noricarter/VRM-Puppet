@@ -32,6 +32,7 @@ _MODE_PREFIXES = {
     '[OBSERVER_PULSE]':  'observer',
     '[AUDIOBOOK_PULSE]': 'audiobook',
     '[IDLE_PULSE]':      'idle_thought',
+    '[RESEARCH_RESULT]': 'idle_thought',
     '[NPC_':             'npc_dialogue',
 }
 
@@ -90,6 +91,8 @@ class PromptComposer:
         legacy_persona: str = None,
         legacy_background: str = None,
         extra_context: str = None,   # RAG Phase 2 hook
+        known_contexts: list = None, # Available KG source contexts for self-writing
+        active_context: str = None,  # Currently active context (for retrieval ranking)
     ) -> str:
         """
         Assemble the full system prompt for the given actor and message.
@@ -108,6 +111,14 @@ class PromptComposer:
         identity = db_manager.get_actor_identity(actor_id)
         if identity:
             id_block = f"--- WHO I AM ---\n"
+            if identity.get('name'):
+                id_block += f"My name is {identity['name']}.\n"
+            
+            # Inject Interests
+            interests = db_manager.get_actor_interests(actor_id)
+            if interests:
+                id_block += f"Active Interests: {', '.join(interests)}\n"
+            
             if identity.get('core_traits'):
                 id_block += f"{identity['core_traits']}\n"
             if identity.get('speech_style'):
@@ -135,7 +146,7 @@ class PromptComposer:
 
         # ---- Layer 4: Knowledge Graph Context -----------------------------
         names = extract_subject_names(message, actor_id)
-        kg_context = db_manager.kg_retrieve_context(actor_id, names)
+        kg_context = db_manager.kg_retrieve_context(actor_id, names, active_context=active_context)
         if kg_context:
             sections.append(f"--- {kg_context}")
 
@@ -148,13 +159,19 @@ class PromptComposer:
             sections.append(f"--- RETRIEVED CONTEXT ---\n{extra_context}")
 
         # ---- Layer 5: Universal Performance Rules -------------------------
-        sections.append("""--- STRICT DIALOGUE RULES ---
+        # Dynamically adjust rules based on mode
+        mode_id = detect_mode(message)
+        speech_rule = "You MUST provide spoken words in the 'response' field." if mode_id == 'user_dialogue' else "Verbal response is OPTIONAL. Use 'absorb' for routine observations."
+
+        sections.append(f"""--- STRICT DIALOGUE RULES ---
 1. You are a vocal performer in a recording booth. Your 'response' field is your script.
-2. Provide ONLY SPOKEN WORDS. Express emotion through word choice, not symbols.
-3. NEVER use asterisks (*) for any purpose. Do not wrap your speech in them.
-4. NO roleplay descriptions, NO narration, NO *stage directions*.
-5. If you want to emphasize a word, use UPPERCASE instead of asterisks or italics.
-6. Keep responses short (1-3 sentences) and conversational unless explaining something complex.
+2. {speech_rule}
+3. Provide ONLY SPOKEN WORDS. Express emotion through word choice, not symbols.
+4. NEVER use asterisks (*) for any purpose. Do not wrap your speech in them.
+5. NO roleplay descriptions, NO narration, NO *stage directions*.
+6. If you want to emphasize a word, use UPPERCASE instead of asterisks or italics.
+7. Keep responses short and conversational.
+8. MANDATORY: Even if searching, you MUST acknowledge it in the 'response' field (e.g. "Checking that now.").
 
 IDEAL RESPONSE EXAMPLES (NO ASTERISKS):
 - "It truly is wonderful to see you again. My day feels brighter already."
@@ -165,6 +182,22 @@ THE 'response' FIELD MUST BE CRISP, CLEAN DIALOGUE ONLY. ABSOLUTELY NO ASTERISKS
 
         # ---- Action Reasoning Engine (unchanged from original) -----------
         if action_library_str:
+            # Build known-contexts block for KG self-write guidance
+            ctx_block = ""
+            if known_contexts:
+                ctx_list = '\n'.join(f'  - {c}' for c in known_contexts)
+                ctx_block = f"""
+--- KNOWN KG CONTEXTS (use EXACT spelling when writing kg_entry) ---
+{ctx_list}
+  - user_dialogue   (always valid — for things learned from direct conversation)
+"""
+            else:
+                ctx_block = """
+--- KNOWN KG CONTEXTS ---
+No contexts yet. You may create a new one using the format: type:SourceName
+Examples: audiobook:We_Are_Legion, show:The_Last_of_Us, user_dialogue
+"""
+
             action_block = f"""
 --- ACTION REASONING ENGINE ---
 You have access to a library of physical actions to enhance your performance.
@@ -181,16 +214,45 @@ CRITICAL: You MUST output a single, valid JSON object. Do not include trailing c
 
 AVAILABLE ACTIONS:
 {action_library_str}
+{ctx_block}
+--- RESPONSE MODE ---
+Each turn you MUST choose how to respond by setting "response_mode":
 
-JSON OUTPUT FORMAT REQUIRED:
+- "speak"            — Reply out loud. Use for direct questions, reactions worth saying aloud,
+                       or short conversational exchanges.
+- "absorb"           — Stay silent. File what you heard into memory as "memory_note".
+                       Use when passively observing (audiobook, show, ambient conversation).
+                       Do NOT set "response" text — leave it as an empty string.
+- "speak_and_absorb" — Both: reply out loud AND capture a memory note.
+                       Use when something is genuinely surprising or worth commenting on
+                       while also being worth remembering precisely.
+
+GUIDANCE:
+- [OBSERVER_PULSE] or [AUDIOBOOK_PULSE] with no dramatic event → prefer "absorb"
+- [OBSERVER_PULSE] with something shocking, funny, or directly addressed to you → "speak_and_absorb"
+- Direct user messages → almost always "speak"
+- "memory_note" should be a single crisp sentence in first person: "I learned that Bob signed a cryonics contract."
+
+JSON OUTPUT FORMAT (MANDATORY STRUCTURE):
 {{
-  "thought": "Brief internal reasoning about the user's intent.",
-  "physical_intent": "Describe the ideal physical action if any.",
+  "thought": "Internal reasoning about intent and mood.",
+  "physical_intent": "Brief description of gesture.",
   "selection_type": "appropriate_action | missing_action | no_action",
-  "action": "matching_filename_or_null",
-  "confidence": 0.0 to 1.0,
-  "response": "Strictly spoken words ONLY. NO ASTERISKS. NO ROLEPLAY."
-}}"""
+  "action": "filename.fbx or null",
+  "confidence": 0.9,
+  "response_mode": "speak | absorb | speak_and_absorb",
+  "memory_note": "Knowledge to save.",
+  "response": "Clean spoken dialogue."
+}}
+
+CRITICAL: Do NOT add extra fields like 'thoughts' or 'UserInterface_Insight'. Use EXACTLY the keys above.
+If response_mode is 'speak', you MUST fill the 'response' field with dialogue.
+
+kg_entry RULES:
+- ONLY include kg_entry when absorbing a NAMED entity (proper noun, specific place, event).
+- OMIT kg_entry entirely (do not include the key at all) for vague references, pronouns, or conversational turns.
+- source_context MUST exactly match one of the listed KNOWN KG CONTEXTS.
+- If the source is a new audiobook or show not yet listed, create it as: audiobook:Title or show:Title."""
             sections.append(action_block.strip())
 
         return "\n\n".join(sections)

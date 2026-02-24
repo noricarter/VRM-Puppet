@@ -302,7 +302,7 @@ class HUDAPI:
         print("[HUD][HandsFree] Starting continuous listener...")
         r = sr.Recognizer()
         r.dynamic_energy_threshold = True
-        r.pause_threshold = 0.8 # Back to standard for speed
+        r.pause_threshold = 1.5  # Seconds of silence before considering speech done
         
         try:
             with sr.Microphone() as source:
@@ -312,7 +312,7 @@ class HUDAPI:
                 
                 while self.hands_free_enabled:
                     try:
-                        audio = r.listen(source, timeout=1, phrase_time_limit=10)
+                        audio = r.listen(source, timeout=1, phrase_time_limit=20)
 
                         # Discard anything heard while she was speaking (feedback loop guard)
                         if self.is_speaking:
@@ -487,8 +487,20 @@ class HUDAPI:
                 self._last_interaction_time = time.time()
                 print("[HUD][Observer] Pulse complete. Timer reset.")
 
+def _screenshot_to_chat(api):
+    """Capture screen and inject result into the JS chat as an attached image."""
+    try:
+        print("[HUD][Hotkey] Capturing screenshot for chat...")
+        b64 = api.capture_screen()
+        if api.window:
+            api.window.evaluate_js(f"injectScreenshot({json.dumps(b64)})")
+            print("[HUD][Hotkey] Screenshot injected into chat.")
+    except Exception as e:
+        print(f"[HUD][Hotkey] Screenshot capture failed: {e}")
+
+
 def start_hotkey_listener(api):
-    print("[HUD] Hotkeys: F8 (Visibility), Arrows (Pos), Shift+Arrows (Z-Depth)")
+    print("[HUD] Hotkeys: F8 (Visibility), Ctrl+Shift+S (Screenshot→Chat), Arrows (Pos), Shift+Arrows (Z-Depth)")
     
     current_keys = set()
     
@@ -498,6 +510,14 @@ def start_hotkey_listener(api):
             
             if key == keyboard.Key.f8:
                 api.toggle_hud()
+
+            # --- Ctrl+Shift+S: Screenshot to Chat ---
+            ctrl_held = keyboard.Key.ctrl_l in current_keys or keyboard.Key.ctrl_r in current_keys
+            shift_held = keyboard.Key.shift in current_keys
+            is_s = hasattr(key, 'char') and key.char in ('s', 'S')
+            if ctrl_held and shift_held and is_s:
+                threading.Thread(target=_screenshot_to_chat, args=(api,), daemon=True).start()
+                return
             
             # Positioning
             step = 0.05

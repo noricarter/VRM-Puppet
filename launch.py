@@ -15,7 +15,16 @@ processes = []
 def signal_handler(sig, frame):
     print("\n--- Shutting down VRM Puppet Stage... 🌑 ---", flush=True)
     for p in processes:
-        p.terminate()
+        try:
+            p.kill() # Force kill instead of graceful terminate
+        except:
+            pass
+    # Attempt to free ports explicitly just in case
+    try:
+        os.system("fuser -k -9 8000/tcp > /dev/null 2>&1")
+        os.system("fuser -k -9 8001/tcp > /dev/null 2>&1")
+    except:
+        pass
     sys.exit(0)
 
 def main():

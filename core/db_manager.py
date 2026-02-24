@@ -569,6 +569,22 @@ def get_actor_identity(actor_id):
 
 # --- Moods ---
 
+def get_actor_interests(actor_id):
+    """Retrieves the list of interests for the actor from reality_state."""
+    val = get_reality(f"actor_interests_{actor_id}", "[]")
+    try:
+        return json.loads(val)
+    except:
+        return []
+
+def set_actor_interests(actor_id, interests):
+    """Saves a list of interests for the actor to reality_state."""
+    if not isinstance(interests, list):
+        interests = []
+    # Cap at 10 interests as per requirement
+    interests = interests[:10]
+    set_reality(f"actor_interests_{actor_id}", json.dumps(interests))
+
 def set_mood(actor_id, mood_id, display_name, behavioral_text, transition_up=None, transition_down=None):
     conn = get_connection()
     cursor = conn.cursor()
@@ -644,14 +660,19 @@ def get_all_mode_prompts(actor_id):
 
 def kg_add_subject(actor_id, canonical_name, subject_type, description=None,
                    aliases=None, confidence=1.0, source='manual'):
-    """Add or update a subject in the knowledge graph."""
+    """Add or update a subject in the knowledge graph.
+    Uniqueness key is (actor_id, canonical_name, source) — two entities with
+    the same name but different source contexts are treated as distinct.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     aliases_json = json.dumps(aliases) if aliases else None
 
-    # Check if already exists (by canonical_name for this actor)
-    cursor.execute('SELECT subject_id FROM kg_subjects WHERE actor_id = ? AND canonical_name = ?',
-                   (actor_id, canonical_name))
+    # Check if already exists (by canonical_name AND source for this actor)
+    cursor.execute(
+        'SELECT subject_id FROM kg_subjects WHERE actor_id = ? AND canonical_name = ? AND source = ?',
+        (actor_id, canonical_name, source)
+    )
     existing = cursor.fetchone()
 
     if existing:
@@ -670,6 +691,22 @@ def kg_add_subject(actor_id, canonical_name, subject_type, description=None,
     conn.commit()
     conn.close()
     return subject_id
+
+
+def kg_get_contexts(actor_id):
+    """Return all distinct source context values for this actor's KG subjects,
+    ordered by recency. Used to populate the LLM's available context list."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT DISTINCT source
+        FROM kg_subjects
+        WHERE actor_id = ? AND source IS NOT NULL AND source != ''
+        ORDER BY last_updated DESC
+    ''', (actor_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [r['source'] for r in rows]
 
 def kg_get_subject(actor_id, name):
     """Look up a subject by canonical name or alias."""
@@ -764,10 +801,14 @@ def kg_get_relations(actor_id, subject_id, min_confidence=0.5):
     conn.close()
     return [dict(r) for r in rows]
 
-def kg_retrieve_context(actor_id, names_mentioned, min_confidence=0.5, max_subjects=5):
+def kg_retrieve_context(actor_id, names_mentioned, min_confidence=0.5, max_subjects=5,
+                        active_context=None):
     """
     Given a list of names extracted from a message, retrieve relevant
     KG context: subjects, their ancestry, and their relations.
+    When active_context is set, subjects from that context rank first;
+    ambiguous names that exist across multiple contexts are listed separately
+    so the LLM can distinguish them.
     Returns a formatted string ready for injection into the prompt.
     """
     if not names_mentioned:
@@ -776,29 +817,61 @@ def kg_retrieve_context(actor_id, names_mentioned, min_confidence=0.5, max_subje
     results = []
     seen_subject_ids = set()
 
+    conn = get_connection()
+    cursor = conn.cursor()
+
     for name in names_mentioned[:max_subjects]:
-        subject = kg_get_subject(actor_id, name)
-        if not subject or subject['subject_id'] in seen_subject_ids:
+        # Fetch ALL matching subjects for this name (may be from multiple contexts)
+        cursor.execute(
+            'SELECT * FROM kg_subjects WHERE actor_id = ? AND canonical_name = ? COLLATE NOCASE ORDER BY last_updated DESC',
+            (actor_id, name)
+        )
+        matches = [dict(r) for r in cursor.fetchall()]
+
+        # Also scan aliases
+        if not matches:
+            cursor.execute('SELECT * FROM kg_subjects WHERE actor_id = ?', (actor_id,))
+            for r in cursor.fetchall():
+                try:
+                    aliases = json.loads(r['aliases'] or '[]')
+                    if any(name.lower() == a.lower() for a in aliases):
+                        matches.append(dict(r))
+                except Exception:
+                    pass
+
+        if not matches:
             continue
-        seen_subject_ids.add(subject['subject_id'])
 
-        sid = subject['subject_id']
-        conf_label = 'high' if subject['confidence'] >= 0.8 else ('medium' if subject['confidence'] >= 0.5 else 'low')
-        line = f"• {subject['canonical_name']} [{subject['subject_type']}] — {subject['description'] or 'no description'} (confidence: {conf_label})"
+        # Sort: active_context first, then by recency
+        if active_context:
+            matches.sort(key=lambda s: (0 if s.get('source') == active_context else 1, s['subject_id'] * -1))
 
-        # Ancestry context
-        ancestors = kg_get_ancestors(sid)
-        if ancestors:
-            ancestry_str = ' → '.join(f"{a['canonical_name']} ({a['relation_label']})" for a in ancestors[:3])
-            line += f"\n  ↳ {ancestry_str}"
+        for subject in matches:
+            sid = subject['subject_id']
+            if sid in seen_subject_ids:
+                continue
+            seen_subject_ids.add(sid)
 
-        # Relations
-        relations = kg_get_relations(actor_id, sid, min_confidence)
-        for rel in relations[:4]:
-            obj_str = rel.get('object_name') or rel.get('object_literal') or '?'
-            line += f"\n  • {rel['subject_name']} → {rel['predicate']} → {obj_str}"
+            conf_label = 'high' if subject['confidence'] >= 0.8 else ('medium' if subject['confidence'] >= 0.5 else 'low')
+            source_tag = f" [ctx: {subject['source']}]" if subject.get('source') else ""
+            line = (f"• {subject['canonical_name']} [{subject['subject_type']}]{source_tag}"
+                    f" — {subject['description'] or 'no description'} (confidence: {conf_label})")
 
-        results.append(line)
+            # Ancestry context
+            ancestors = kg_get_ancestors(sid)
+            if ancestors:
+                ancestry_str = ' → '.join(f"{a['canonical_name']} ({a['relation_label']})" for a in ancestors[:3])
+                line += f"\n  ↳ {ancestry_str}"
+
+            # Relations
+            relations = kg_get_relations(actor_id, sid, min_confidence)
+            for rel in relations[:4]:
+                obj_str = rel.get('object_name') or rel.get('object_literal') or '?'
+                line += f"\n  • {rel['subject_name']} → {rel['predicate']} → {obj_str}"
+
+            results.append(line)
+
+    conn.close()
 
     if not results:
         return ""

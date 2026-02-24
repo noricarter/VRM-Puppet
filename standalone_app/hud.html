@@ -19,6 +19,7 @@
             <button id="menu-toggle" title="Menu">☰</button>
             <div id="menu-items">
                 <button onclick="window.toggleChatModal()">💬 Chat</button>
+                <button onclick="window.toggleMindModal()">🧠 Mind</button>
                 <button onclick="window.pywebview.api.open_settings()">⚙️ Settings</button>
                 <button onclick="window.pywebview.api.quit()" class="danger">✖ Quit</button>
             </div>
@@ -106,6 +107,15 @@
                 <button type="submit" id="btn-chat-send">Send</button>
             </form>
         </div>
+    </div>
+
+    <!-- Mind Monitor Modal (Movable) -->
+    <div id="mind-modal" class="modal-hidden">
+        <div id="mind-header">
+            <span id="mind-handle">⠿ Mind Monitor</span>
+            <button id="mind-close" onclick="window.toggleMindModal(false)">×</button>
+        </div>
+        <div id="mind-log"></div>
     </div>
 
     <!-- Load Three.js and Viewer Dependencies -->
