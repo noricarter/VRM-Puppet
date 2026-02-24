@@ -1,0 +1,133 @@
+{
+  "metadata": {
+    "soundFile": "/home/nori/PycharmProjects/VRM-Puppet/web/temp/stream_1771866769_0.wav",
+    "duration": 4.44
+  },
+  "mouthCues": [
+    {
+      "start": 0.0,
+      "end": 0.19,
+      "value": "X"
+    },
+    {
+      "start": 0.19,
+      "end": 0.24,
+      "value": "B"
+    },
+    {
+      "start": 0.24,
+      "end": 0.5,
+      "value": "D"
+    },
+    {
+      "start": 0.5,
+      "end": 0.92,
+      "value": "H"
+    },
+    {
+      "start": 0.92,
+      "end": 0.99,
+      "value": "B"
+    },
+    {
+      "start": 0.99,
+      "end": 1.18,
+      "value": "D"
+    },
+    {
+      "start": 1.18,
+      "end": 1.23,
+      "value": "C"
+    },
+    {
+      "start": 1.23,
+      "end": 1.69,
+      "value": "B"
+    },
+    {
+      "start": 1.69,
+      "end": 1.76,
+      "value": "F"
+    },
+    {
+      "start": 1.76,
+      "end": 1.83,
+      "value": "C"
+    },
+    {
+      "start": 1.83,
+      "end": 1.9,
+      "value": "B"
+    },
+    {
+      "start": 1.9,
+      "end": 1.97,
+      "value": "C"
+    },
+    {
+      "start": 1.97,
+      "end": 2.42,
+      "value": "B"
+    },
+    {
+      "start": 2.42,
+      "end": 2.61,
+      "value": "C"
+    },
+    {
+      "start": 2.61,
+      "end": 2.89,
+      "value": "B"
+    },
+    {
+      "start": 2.89,
+      "end": 3.08,
+      "value": "A"
+    },
+    {
+      "start": 3.08,
+      "end": 3.51,
+      "value": "B"
+    },
+    {
+      "start": 3.51,
+      "end": 3.58,
+      "value": "D"
+    },
+    {
+      "start": 3.58,
+      "end": 3.72,
+      "value": "B"
+    },
+    {
+      "start": 3.72,
+      "end": 3.8,
+      "value": "A"
+    },
+    {
+      "start": 3.8,
+      "end": 4.08,
+      "value": "C"
+    },
+    {
+      "start": 4.08,
+      "end": 4.15,
+      "value": "G"
+    },
+    {
+      "start": 4.15,
+      "end": 4.29,
+      "value": "F"
+    },
+    {
+      "start": 4.29,
+      "end": 4.36,
+      "value": "B"
+    },
+    {
+      "start": 4.36,
+      "end": 4.44,
+      "value": "X"
+    }
+  ]
+}

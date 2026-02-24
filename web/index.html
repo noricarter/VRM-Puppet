@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VRM Marionette Mixer (MVP)</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script type="importmap">
+    {
+        "imports": {
+            "three": "/web/lib/three.module.js",
+            "three/examples/jsm/loaders/GLTFLoader.js": "/web/lib/GLTFLoader.js",
+            "three/examples/jsm/loaders/FBXLoader.js": "/web/lib/FBXLoader.js",
+            "@pixiv/three-vrm": "/web/lib/three-vrm.module.js"
+        }
+    }
+    </script>
+</head>
+
+<body>
+
+  <!-- METADATA ENTRY MODAL (Blocks UI if unindexed animations exist) -->
+  <div id="metadata-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <h2><i class="fas fa-file-signature"></i> New Animation Detected</h2>
+      <p>Please provide context for the AI to understand this action.</p>
+
+      <div class="form-group">
+        <label>File:</label>
+        <input type="text" id="meta-filename" readonly disabled>
+      </div>
+
+      <div class="form-group">
+        <label>Category:</label>
+        <input type="text" id="meta-category" readonly disabled>
+      </div>
+
+      <div class="form-group">
+        <label>Trigger Condition (When?):</label>
+        <input type="text" id="meta-trigger" placeholder="e.g. User enters the room...">
+      </div>
+
+      <div class="form-group">
+        <label>Action Purpose (Why?):</label>
+        <input type="text" id="meta-purpose" placeholder="e.g. To acknowledge presence...">
+      </div>
+
+      <div class="form-group">
+        <label>Action Effect (Outcome?):</label>
+        <input type="text" id="meta-effect" placeholder="e.g. Increases engagement...">
+      </div>
+
+      <div class="modal-actions">
+        <span id="meta-count">1 of 5</span>
+        <button id="meta-save-btn" class="primary-btn">Save & Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Left popout panel — Persona & Knowledge Editor -->
+  <aside id="panel-left" class="side-panel side-panel-left">
+    <div class="panel-header">
+      <span>✏️ Character Editor</span>
+      <button class="panel-close" data-panel="left" aria-label="Close left panel">✕</button>
+    </div>
+    <div class="panel-body" id="persona-editor-mount">
+      <p class="muted">Select a character and click the ✏️ button to open the editor.</p>
+    </div>
+  </aside>
+
+  <!-- Right popout panel (empty placeholder) -->
+  <aside id="panel-right" class="side-panel side-panel-right">
+    <div class="panel-header">
+      <span>Right Panel</span>
+      <button class="panel-close" data-panel="right" aria-label="Close right panel">✕</button>
+    </div>
+    <div class="panel-body">
+      <p class="muted">Reserved for future options.</p>
+    </div>
+  </aside>
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button id="btn-open-left" class="icon-btn" title="Character Editor">✏️</button>
+      <span class="brand">VRM Marionette Mixer</span>
+    </div>
+    <div class="topbar-right">
+      <button id="btn-open-right" class="icon-btn" title="Open right panel">⚙</button>
+    </div>
+  </header>
+
+  <!-- Main content area -->
+  <main class="main">
+    <section class="viewport-shell">
+      <div id="viewport" class="viewport">
+        <!-- TEMP overlay only (remove next phase) -->
+        <div class="viewport-overlay">
+          <div class="payload-preview">
+            <div class="payload-title">TEMP: Payload Preview (remove next phase)</div>
+            <pre id="payloadPreview">{}</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Bottom mixing board -->
+  <footer class="mixer">
+    <div class="mixer-tabs" id="tabStrip"></div>
+
+    <div class="mixer-body">
+      <div class="slider-bank" id="sliderBank"></div>
+
+      <div class="mixer-actions">
+        <!-- Scene-only block -->
+        <div id="sceneBlock" class="scene-block">
+          <div class="scene-title">Scene Setup</div>
+          <select id="characterSelect"></select>
+          <div id="sceneStatus" class="scene-status muted">Select a character, then Apply.</div>
+          <button id="btn-export-rig" class="secondary" type="button">
+            Export Rig Report
+          </button>
+        </div>
+
+        <button id="btn-apply" class="primary">Apply</button>
+        <button id="btn-reset" class="secondary">Reset</button>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,1318 @@
+{
+  "3": {
+    "inputs": {
+      "text": "",
+      "seed": 1692,
+      "autorefresh": "No"
+    },
+    "class_type": "DPRandomGenerator",
+    "_meta": {
+      "title": "Instructions"
+    }
+  },
+  "4": {
+    "inputs": {
+      "text": "",
+      "seed": 339,
+      "autorefresh": "No"
+    },
+    "class_type": "DPRandomGenerator",
+    "_meta": {
+      "title": "Chat"
+    }
+  },
+  "19": {
+    "inputs": {
+      "operation": "greater-than"
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "22": {
+    "inputs": {
+      "operation": "less-than"
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "23": {
+    "inputs": {
+      "operation": "equals"
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "25": {
+    "inputs": {
+      "operation": "equals",
+      "number_a": [
+        "30",
+        0
+      ],
+      "number_b": [
+        "28",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "28": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "30": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "32",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "32": {
+    "inputs": {
+      "Int": [
+        "88",
+        0
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "33": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "25",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "35": {
+    "inputs": {
+      "boolean": [
+        "25",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "38": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "40": {
+    "inputs": {
+      "Int": [
+        "90",
+        0
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "41": {
+    "inputs": {
+      "operation": "equals",
+      "number_a": [
+        "45",
+        0
+      ],
+      "number_b": [
+        "38",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "42": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "41",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "43": {
+    "inputs": {
+      "boolean": [
+        "41",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "45": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "40",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "46": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "48": {
+    "inputs": {
+      "Int": [
+        "92",
+        0
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "49": {
+    "inputs": {
+      "operation": "equals",
+      "number_a": [
+        "53",
+        0
+      ],
+      "number_b": [
+        "46",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "50": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "49",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "51": {
+    "inputs": {
+      "boolean": [
+        "49",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "53": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "48",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "55": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "62",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "56": {
+    "inputs": {
+      "boolean": [
+        "62",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "57": {
+    "inputs": {
+      "expression": "a+b+c",
+      "a": [
+        "88",
+        0
+      ],
+      "b": [
+        "90",
+        0
+      ],
+      "c": [
+        "92",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "Math Expression 🐍"
+    }
+  },
+  "61": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "62": {
+    "inputs": {
+      "operation": "equals",
+      "number_a": [
+        "63",
+        0
+      ],
+      "number_b": [
+        "61",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "63": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "64",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "64": {
+    "inputs": {
+      "Int": [
+        "57",
+        0
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "66": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "dt_since_last_external",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "68": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "dt_since_last_internal",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "69": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "engaged_window_seconds",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "70": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "mental_energy",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "71": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "physical_energy",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "72": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "emotional_energy",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "73": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "stamina",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "82": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "chat_history",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "84": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "thought_history",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "86": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "action_history",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "88": {
+    "inputs": {
+      "string": [
+        "82",
+        1
+      ]
+    },
+    "class_type": "StringLength",
+    "_meta": {
+      "title": "ChatHistoryLength"
+    }
+  },
+  "90": {
+    "inputs": {
+      "string": [
+        "84",
+        1
+      ]
+    },
+    "class_type": "StringLength",
+    "_meta": {
+      "title": "ThoughtHistoryLength"
+    }
+  },
+  "92": {
+    "inputs": {
+      "string": [
+        "86",
+        1
+      ]
+    },
+    "class_type": "StringLength",
+    "_meta": {
+      "title": "ActionHistoryLength"
+    }
+  },
+  "97": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "105",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "99": {
+    "inputs": {
+      "Int": [
+        "66",
+        1
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "100": {
+    "inputs": {
+      "operation": "less-than or equals",
+      "number_a": [
+        "101",
+        0
+      ],
+      "number_b": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "101": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "99",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "102": {
+    "inputs": {
+      "boolean": [
+        "100",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "103": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "100",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "105": {
+    "inputs": {
+      "Int": [
+        "69",
+        1
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "107": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "108": {
+    "inputs": {
+      "Int": [
+        "118",
+        0
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "109": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "108",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "110": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "113",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "113": {
+    "inputs": {
+      "operation": "greater-than",
+      "number_a": [
+        "109",
+        0
+      ],
+      "number_b": [
+        "107",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "116": {
+    "inputs": {
+      "boolean": [
+        "113",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "118": {
+    "inputs": {
+      "string": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "StringLength",
+    "_meta": {
+      "title": "Length"
+    }
+  },
+  "120": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "mental_energy_min",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "121": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "physical_energy_min",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "122": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "emotional_energy_min",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "123": {
+    "inputs": {
+      "file_path": "data.json",
+      "key": "stamina_min",
+      "is_enable": true
+    },
+    "class_type": "json_parser",
+    "_meta": {
+      "title": "JSON File Parser🐶"
+    }
+  },
+  "128": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "132",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "129": {
+    "inputs": {
+      "Int": [
+        "73",
+        1
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "130": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "129",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "131": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "134",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "132": {
+    "inputs": {
+      "Int": [
+        "123",
+        1
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "134": {
+    "inputs": {
+      "operation": "less-than or equals",
+      "number_a": [
+        "130",
+        0
+      ],
+      "number_b": [
+        "128",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "135": {
+    "inputs": {
+      "boolean": [
+        "134",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "138": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "142",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "139": {
+    "inputs": {
+      "Int": [
+        "70",
+        1
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "140": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "139",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "141": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "144",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "142": {
+    "inputs": {
+      "Int": [
+        "120",
+        1
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "143": {
+    "inputs": {
+      "boolean": [
+        "144",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "144": {
+    "inputs": {
+      "operation": "less-than or equals",
+      "number_a": [
+        "140",
+        0
+      ],
+      "number_b": [
+        "138",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "148": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "152",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "149": {
+    "inputs": {
+      "Int": [
+        "71",
+        1
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "150": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "149",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "151": {
+    "inputs": {
+      "text": "0",
+      "anything": [
+        "154",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "152": {
+    "inputs": {
+      "Int": [
+        "121",
+        1
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "153": {
+    "inputs": {
+      "boolean": [
+        "154",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "154": {
+    "inputs": {
+      "operation": "less-than or equals",
+      "number_a": [
+        "150",
+        0
+      ],
+      "number_b": [
+        "148",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "169": {
+    "inputs": {
+      "boolean": [
+        "198",
+        0
+      ],
+      "on_true": [
+        "210",
+        0
+      ],
+      "on_false": [
+        "172",
+        0
+      ]
+    },
+    "class_type": "easy ifElse",
+    "_meta": {
+      "title": "If else"
+    }
+  },
+  "171": {
+    "inputs": {
+      "String": "respond"
+    },
+    "class_type": "String",
+    "_meta": {
+      "title": "String"
+    }
+  },
+  "172": {
+    "inputs": {
+      "String": "idle"
+    },
+    "class_type": "String",
+    "_meta": {
+      "title": "String"
+    }
+  },
+  "174": {
+    "inputs": {
+      "boolean": [
+        "102",
+        0
+      ],
+      "on_true": [
+        "171",
+        0
+      ],
+      "on_false": [
+        "169",
+        0
+      ]
+    },
+    "class_type": "easy ifElse",
+    "_meta": {
+      "title": "If else"
+    }
+  },
+  "175": {
+    "inputs": {
+      "String": "recover"
+    },
+    "class_type": "String",
+    "_meta": {
+      "title": "String"
+    }
+  },
+  "177": {
+    "inputs": {
+      "boolean": [
+        "135",
+        0
+      ],
+      "on_true": [
+        "175",
+        0
+      ],
+      "on_false": [
+        "174",
+        0
+      ]
+    },
+    "class_type": "easy ifElse",
+    "_meta": {
+      "title": "If else"
+    }
+  },
+  "193": {
+    "inputs": {
+      "a": [
+        "92",
+        0
+      ],
+      "b": [
+        "90",
+        0
+      ],
+      "operation": "add"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "Math Int"
+    }
+  },
+  "194": {
+    "inputs": {
+      "operation": "greater-than",
+      "number_a": [
+        "197",
+        0
+      ],
+      "number_b": [
+        "196",
+        0
+      ]
+    },
+    "class_type": "Number Operation",
+    "_meta": {
+      "title": "Number Operation"
+    }
+  },
+  "195": {
+    "inputs": {
+      "Int": [
+        "193",
+        0
+      ]
+    },
+    "class_type": "Int2String",
+    "_meta": {
+      "title": "Int2String"
+    }
+  },
+  "196": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "197": {
+    "inputs": {
+      "number_type": "integer",
+      "number": 0,
+      "number_as_text": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "Constant Number",
+    "_meta": {
+      "title": "Constant Number"
+    }
+  },
+  "198": {
+    "inputs": {
+      "A": [
+        "216",
+        0
+      ],
+      "logic_type": "and",
+      "B": [
+        "200",
+        0
+      ]
+    },
+    "class_type": "bool_logic",
+    "_meta": {
+      "title": "Boolean Logic"
+    }
+  },
+  "200": {
+    "inputs": {
+      "boolean": [
+        "194",
+        1
+      ]
+    },
+    "class_type": "Logic Boolean",
+    "_meta": {
+      "title": "Logic Boolean"
+    }
+  },
+  "205": {
+    "inputs": {
+      "Number": "0"
+    },
+    "class_type": "Int",
+    "_meta": {
+      "title": "Int"
+    }
+  },
+  "206": {
+    "inputs": {
+      "Number": "1"
+    },
+    "class_type": "Int",
+    "_meta": {
+      "title": "Int"
+    }
+  },
+  "210": {
+    "inputs": {
+      "text": "{think|do}",
+      "seed": 1991,
+      "autorefresh": "No"
+    },
+    "class_type": "DPRandomGenerator",
+    "_meta": {
+      "title": "Random Prompts"
+    }
+  },
+  "211": {
+    "inputs": {
+      "text": [
+        "177",
+        0
+      ]
+    },
+    "class_type": "ShowText|pysssss",
+    "_meta": {
+      "title": "Show Text 🐍"
+    }
+  },
+  "213": {
+    "inputs": {
+      "text": "True",
+      "anything": [
+        "198",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "216": {
+    "inputs": {
+      "boolean": [
+        "102",
+        0
+      ],
+      "on_true": [
+        "226",
+        0
+      ],
+      "on_false": [
+        "225",
+        0
+      ]
+    },
+    "class_type": "easy ifElse",
+    "_meta": {
+      "title": "If else"
+    }
+  },
+  "225": {
+    "inputs": {
+      "value": true
+    },
+    "class_type": "easy boolean",
+    "_meta": {
+      "title": "Boolean"
+    }
+  },
+  "226": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "easy boolean",
+    "_meta": {
+      "title": "Boolean"
+    }
+  }
+}

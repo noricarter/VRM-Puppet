@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VRM Puppet HUD</title>
+    <link rel="stylesheet" href="hud.css">
+</head>
+
+<body class="transparent-root">
+    <!-- Viewport for VRM Character -->
+    <div id="viewport"></div>
+
+    <!-- HUD Overlay UI Container (Clickable parts) -->
+    <div id="hud-ui">
+        <!-- Pop-out Menu -->
+        <div id="side-menu" class="menu-hidden">
+            <button id="menu-toggle" title="Menu">☰</button>
+            <div id="menu-items">
+                <button onclick="window.toggleChatModal()">💬 Chat</button>
+                <button onclick="window.pywebview.api.open_settings()">⚙️ Settings</button>
+                <button onclick="window.pywebview.api.quit()" class="danger">✖ Quit</button>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal-hidden">
+            <div class="modal-content">
+                <h2>HUD Settings</h2>
+                <div class="form-group">
+                    <label>Profile Selector</label>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="profile-selector" style="flex-grow: 1;">
+                            <option value="">-- New Profile --</option>
+                        </select>
+                        <button type="button" onclick="window.loadSelectedProfile()">Load</button>
+                    </div>
+                </div>
+                <hr>
+                <form id="settings-form">
+                    <div class="form-group">
+                        <label>Actor Profile: <span id="current-actor-display"
+                                style="color: var(--accent);">--</span></label>
+                        <input type="hidden" id="actor-id">
+                    </div>
+                    <div class="form-group">
+                        <label>VRM Character</label>
+                        <select id="vrm-path" onchange="window.onVRMChange()" required>
+                            <option value="">-- Select VRM --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>LLM Model</label>
+                        <select id="llm-model">
+                            <option value="">-- Select Model --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Persona</label>
+                        <textarea id="persona" rows="4" placeholder="You are..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Voice Description</label>
+                        <input type="text" id="voice-desc" placeholder="A calm female voice.">
+                    </div>
+                    <div class="form-group">
+                        <label>Voice Reference Audio (Optional .wav)</label>
+                        <input type="text" id="voice-ref" placeholder="assets/voices/ref.wav">
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="face-camera" style="width: auto; margin: 0;" checked>
+                        <label for="face-camera" style="margin: 0;">Face Camera (Auto-Orientation)</label>
+                    </div>
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="observer-mode" style="width: auto; margin: 0;">
+                        <label for="observer-mode" style="margin: 0;">Observer Mode (Watch Shows)</label>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="accent">Save Profile</button>
+                        <button type="button" onclick="window.hideSettingsModal()">Close</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Chat Modal (Movable) -->
+        <div id="chat-modal" class="modal-hidden">
+            <div id="chat-header">
+                <span id="chat-handle">⠿ VRM Chat</span>
+                <button id="chat-close" onclick="window.toggleChatModal(false)">×</button>
+            </div>
+            <div id="chat-messages">
+                <div class="message system">Connected to character viewer.</div>
+            </div>
+            <div id="image-preview-container" class="preview-hidden">
+                <img id="image-preview" src="" alt="Preview">
+                <button type="button" id="remove-image" onclick="window.clearAttachedImage()">×</button>
+            </div>
+            <form id="chat-form">
+                <input type="file" id="image-upload" accept="image/*" style="display: none;">
+                <button type="button" id="attach-button"
+                    onclick="document.getElementById('image-upload').click()">📎</button>
+                <input type="text" id="chat-input" placeholder="Say something..." autocomplete="off">
+                <button type="button" id="mic-button" title="Voice Input">🎤</button>
+                <button type="submit" id="btn-chat-send">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Load Three.js and Viewer Dependencies -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "../web/lib/three.module.js",
+            "three/examples/jsm/loaders/GLTFLoader.js": "../web/lib/GLTFLoader.js",
+            "three/examples/jsm/loaders/FBXLoader.js": "../web/lib/FBXLoader.js",
+            "@pixiv/three-vrm": "../web/lib/three-vrm.module.js"
+        }
+    }
+    </script>
+    <script type="module" src="hud.js"></script>
+</body>
+
+</html>

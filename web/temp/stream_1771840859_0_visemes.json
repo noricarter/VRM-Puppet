@@ -1,0 +1,288 @@
+{
+  "metadata": {
+    "soundFile": "/home/nori/PycharmProjects/VRM-Puppet/web/temp/stream_1771840859_0.wav",
+    "duration": 8.2
+  },
+  "mouthCues": [
+    {
+      "start": 0.0,
+      "end": 0.19,
+      "value": "X"
+    },
+    {
+      "start": 0.19,
+      "end": 0.25,
+      "value": "B"
+    },
+    {
+      "start": 0.25,
+      "end": 0.37,
+      "value": "D"
+    },
+    {
+      "start": 0.37,
+      "end": 0.65,
+      "value": "F"
+    },
+    {
+      "start": 0.65,
+      "end": 0.72,
+      "value": "B"
+    },
+    {
+      "start": 0.72,
+      "end": 0.79,
+      "value": "G"
+    },
+    {
+      "start": 0.79,
+      "end": 1.07,
+      "value": "B"
+    },
+    {
+      "start": 1.07,
+      "end": 1.15,
+      "value": "A"
+    },
+    {
+      "start": 1.15,
+      "end": 1.32,
+      "value": "C"
+    },
+    {
+      "start": 1.32,
+      "end": 1.46,
+      "value": "G"
+    },
+    {
+      "start": 1.46,
+      "end": 1.53,
+      "value": "B"
+    },
+    {
+      "start": 1.53,
+      "end": 1.6,
+      "value": "C"
+    },
+    {
+      "start": 1.6,
+      "end": 1.81,
+      "value": "B"
+    },
+    {
+      "start": 1.81,
+      "end": 1.95,
+      "value": "C"
+    },
+    {
+      "start": 1.95,
+      "end": 2.02,
+      "value": "G"
+    },
+    {
+      "start": 2.02,
+      "end": 2.23,
+      "value": "E"
+    },
+    {
+      "start": 2.23,
+      "end": 2.3,
+      "value": "B"
+    },
+    {
+      "start": 2.3,
+      "end": 2.42,
+      "value": "X"
+    },
+    {
+      "start": 2.42,
+      "end": 2.5,
+      "value": "B"
+    },
+    {
+      "start": 2.5,
+      "end": 2.58,
+      "value": "A"
+    },
+    {
+      "start": 2.58,
+      "end": 2.68,
+      "value": "B"
+    },
+    {
+      "start": 2.68,
+      "end": 2.96,
+      "value": "C"
+    },
+    {
+      "start": 2.96,
+      "end": 3.17,
+      "value": "B"
+    },
+    {
+      "start": 3.17,
+      "end": 3.31,
+      "value": "E"
+    },
+    {
+      "start": 3.31,
+      "end": 3.38,
+      "value": "C"
+    },
+    {
+      "start": 3.38,
+      "end": 3.45,
+      "value": "G"
+    },
+    {
+      "start": 3.45,
+      "end": 3.52,
+      "value": "B"
+    },
+    {
+      "start": 3.52,
+      "end": 3.59,
+      "value": "H"
+    },
+    {
+      "start": 3.59,
+      "end": 3.66,
+      "value": "C"
+    },
+    {
+      "start": 3.66,
+      "end": 3.8,
+      "value": "B"
+    },
+    {
+      "start": 3.8,
+      "end": 4.01,
+      "value": "E"
+    },
+    {
+      "start": 4.01,
+      "end": 4.08,
+      "value": "F"
+    },
+    {
+      "start": 4.08,
+      "end": 4.17,
+      "value": "A"
+    },
+    {
+      "start": 4.17,
+      "end": 4.45,
+      "value": "B"
+    },
+    {
+      "start": 4.45,
+      "end": 4.59,
+      "value": "C"
+    },
+    {
+      "start": 4.59,
+      "end": 4.8,
+      "value": "B"
+    },
+    {
+      "start": 4.8,
+      "end": 4.87,
+      "value": "G"
+    },
+    {
+      "start": 4.87,
+      "end": 4.94,
+      "value": "E"
+    },
+    {
+      "start": 4.94,
+      "end": 5.29,
+      "value": "B"
+    },
+    {
+      "start": 5.29,
+      "end": 5.37,
+      "value": "A"
+    },
+    {
+      "start": 5.37,
+      "end": 5.45,
+      "value": "D"
+    },
+    {
+      "start": 5.45,
+      "end": 5.53,
+      "value": "A"
+    },
+    {
+      "start": 5.53,
+      "end": 5.83,
+      "value": "E"
+    },
+    {
+      "start": 5.83,
+      "end": 6.23,
+      "value": "X"
+    },
+    {
+      "start": 6.23,
+      "end": 6.54,
+      "value": "B"
+    },
+    {
+      "start": 6.54,
+      "end": 6.68,
+      "value": "E"
+    },
+    {
+      "start": 6.68,
+      "end": 6.82,
+      "value": "B"
+    },
+    {
+      "start": 6.82,
+      "end": 6.96,
+      "value": "E"
+    },
+    {
+      "start": 6.96,
+      "end": 7.03,
+      "value": "G"
+    },
+    {
+      "start": 7.03,
+      "end": 7.11,
+      "value": "A"
+    },
+    {
+      "start": 7.11,
+      "end": 7.18,
+      "value": "C"
+    },
+    {
+      "start": 7.18,
+      "end": 7.39,
+      "value": "F"
+    },
+    {
+      "start": 7.39,
+      "end": 7.67,
+      "value": "B"
+    },
+    {
+      "start": 7.67,
+      "end": 7.74,
+      "value": "C"
+    },
+    {
+      "start": 7.74,
+      "end": 7.95,
+      "value": "E"
+    },
+    {
+      "start": 7.95,
+      "end": 8.2,
+      "value": "X"
+    }
+  ]
+}

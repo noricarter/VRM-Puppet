@@ -1,0 +1,263 @@
+{
+  "metadata": {
+    "soundFile": "/home/nori/PycharmProjects/VRM-Puppet/web/temp/stream_1771866193_0.wav",
+    "duration": 7.28
+  },
+  "mouthCues": [
+    {
+      "start": 0.0,
+      "end": 0.17,
+      "value": "X"
+    },
+    {
+      "start": 0.17,
+      "end": 0.46,
+      "value": "B"
+    },
+    {
+      "start": 0.46,
+      "end": 0.6,
+      "value": "E"
+    },
+    {
+      "start": 0.6,
+      "end": 0.67,
+      "value": "G"
+    },
+    {
+      "start": 0.67,
+      "end": 1.09,
+      "value": "B"
+    },
+    {
+      "start": 1.09,
+      "end": 1.16,
+      "value": "H"
+    },
+    {
+      "start": 1.16,
+      "end": 1.37,
+      "value": "C"
+    },
+    {
+      "start": 1.37,
+      "end": 1.44,
+      "value": "D"
+    },
+    {
+      "start": 1.44,
+      "end": 1.51,
+      "value": "B"
+    },
+    {
+      "start": 1.51,
+      "end": 1.79,
+      "value": "C"
+    },
+    {
+      "start": 1.79,
+      "end": 1.89,
+      "value": "A"
+    },
+    {
+      "start": 1.89,
+      "end": 2.05,
+      "value": "H"
+    },
+    {
+      "start": 2.05,
+      "end": 2.19,
+      "value": "B"
+    },
+    {
+      "start": 2.19,
+      "end": 2.28,
+      "value": "A"
+    },
+    {
+      "start": 2.28,
+      "end": 2.42,
+      "value": "B"
+    },
+    {
+      "start": 2.42,
+      "end": 2.56,
+      "value": "E"
+    },
+    {
+      "start": 2.56,
+      "end": 2.63,
+      "value": "B"
+    },
+    {
+      "start": 2.63,
+      "end": 2.73,
+      "value": "D"
+    },
+    {
+      "start": 2.73,
+      "end": 2.77,
+      "value": "C"
+    },
+    {
+      "start": 2.77,
+      "end": 2.84,
+      "value": "G"
+    },
+    {
+      "start": 2.84,
+      "end": 2.91,
+      "value": "B"
+    },
+    {
+      "start": 2.91,
+      "end": 2.98,
+      "value": "F"
+    },
+    {
+      "start": 2.98,
+      "end": 3.12,
+      "value": "B"
+    },
+    {
+      "start": 3.12,
+      "end": 3.19,
+      "value": "C"
+    },
+    {
+      "start": 3.19,
+      "end": 3.26,
+      "value": "F"
+    },
+    {
+      "start": 3.26,
+      "end": 3.33,
+      "value": "G"
+    },
+    {
+      "start": 3.33,
+      "end": 3.47,
+      "value": "E"
+    },
+    {
+      "start": 3.47,
+      "end": 3.55,
+      "value": "A"
+    },
+    {
+      "start": 3.55,
+      "end": 3.9,
+      "value": "C"
+    },
+    {
+      "start": 3.9,
+      "end": 4.18,
+      "value": "B"
+    },
+    {
+      "start": 4.18,
+      "end": 4.33,
+      "value": "X"
+    },
+    {
+      "start": 4.33,
+      "end": 4.44,
+      "value": "B"
+    },
+    {
+      "start": 4.44,
+      "end": 4.52,
+      "value": "A"
+    },
+    {
+      "start": 4.52,
+      "end": 4.78,
+      "value": "B"
+    },
+    {
+      "start": 4.78,
+      "end": 4.92,
+      "value": "F"
+    },
+    {
+      "start": 4.92,
+      "end": 5.13,
+      "value": "B"
+    },
+    {
+      "start": 5.13,
+      "end": 5.2,
+      "value": "G"
+    },
+    {
+      "start": 5.2,
+      "end": 5.27,
+      "value": "B"
+    },
+    {
+      "start": 5.27,
+      "end": 5.34,
+      "value": "C"
+    },
+    {
+      "start": 5.34,
+      "end": 5.62,
+      "value": "B"
+    },
+    {
+      "start": 5.62,
+      "end": 5.71,
+      "value": "E"
+    },
+    {
+      "start": 5.71,
+      "end": 5.73,
+      "value": "A"
+    },
+    {
+      "start": 5.73,
+      "end": 5.79,
+      "value": "B"
+    },
+    {
+      "start": 5.79,
+      "end": 5.84,
+      "value": "A"
+    },
+    {
+      "start": 5.84,
+      "end": 5.95,
+      "value": "H"
+    },
+    {
+      "start": 5.95,
+      "end": 6.16,
+      "value": "B"
+    },
+    {
+      "start": 6.16,
+      "end": 6.3,
+      "value": "E"
+    },
+    {
+      "start": 6.3,
+      "end": 6.37,
+      "value": "B"
+    },
+    {
+      "start": 6.37,
+      "end": 6.58,
+      "value": "E"
+    },
+    {
+      "start": 6.58,
+      "end": 7.0,
+      "value": "B"
+    },
+    {
+      "start": 7.0,
+      "end": 7.28,
+      "value": "X"
+    }
+  ]
+}

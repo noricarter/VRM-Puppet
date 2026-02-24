@@ -1,0 +1,721 @@
+{
+  "tabs": [
+    {
+      "id": "character",
+      "label": "Character",
+      "ui": "characterSelect"
+    },
+    {
+      "id": "scene",
+      "label": "Scene",
+      "sliders": [
+        {
+          "id": "scene.pos.x",
+          "label": "Pos X (Char)",
+          "min": -3,
+          "max": 3,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "scene.pos.y",
+          "label": "Pos Y (Char)",
+          "min": -3,
+          "max": 3,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "scene.pos.z",
+          "label": "Pos Z (Char)",
+          "min": -3,
+          "max": 3,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "scene.cam.mode",
+          "label": "Cam Mode (0=Orbit, 1=Free)",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 1
+        },
+        {
+          "id": "scene.cam.dist",
+          "label": "Cam Dist (Orbit)",
+          "min": 0.5,
+          "max": 6,
+          "default": 2.2,
+          "step": 0.01
+        },
+        {
+          "id": "scene.cam.yaw",
+          "label": "Cam Yaw (Orbit)",
+          "min": -3.141592653589793,
+          "max": 3.141592653589793,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "scene.cam.pitch",
+          "label": "Cam Pitch (Orbit)",
+          "min": -1.2,
+          "max": 1.2,
+          "default": 0.2,
+          "step": 0.01
+        },
+        {
+          "id": "scene.cam.pos.x",
+          "label": "Cam Pos X (Free)",
+          "min": -5,
+          "max": 5,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "scene.cam.pos.y",
+          "label": "Cam Pos Y (Free)",
+          "min": 0,
+          "max": 5,
+          "default": 1.5,
+          "step": 0.01
+        },
+        {
+          "id": "scene.cam.pos.z",
+          "label": "Cam Pos Z (Free)",
+          "min": -5,
+          "max": 5,
+          "default": 2.2,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "presets",
+      "label": "Presets",
+      "sliders": [
+        {
+          "id": "preset.aa",
+          "label": "aa",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.ih",
+          "label": "ih",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.ou",
+          "label": "ou",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.ee",
+          "label": "ee",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.oh",
+          "label": "oh",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.blink",
+          "label": "blink",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.blinkLeft",
+          "label": "blinkLeft",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.blinkRight",
+          "label": "blinkRight",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.neutral",
+          "label": "neutral",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.happy",
+          "label": "happy",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.angry",
+          "label": "angry",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.sad",
+          "label": "sad",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.relaxed",
+          "label": "relaxed",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "preset.surprised",
+          "label": "surprised",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "morph_brw",
+      "label": "Morphs: Brows",
+      "sliders": [
+        {
+          "id": "morph.Fcl_BRW_Angry",
+          "label": "BRW_Angry",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_BRW_Fun",
+          "label": "BRW_Fun",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_BRW_Joy",
+          "label": "BRW_Joy",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_BRW_Sorrow",
+          "label": "BRW_Sorrow",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_BRW_Surprised",
+          "label": "BRW_Surprised",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "morph_eye",
+      "label": "Morphs: Eyes",
+      "sliders": [
+        {
+          "id": "morph.Fcl_EYE_Angry",
+          "label": "EYE_Angry",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Close",
+          "label": "EYE_Close",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Close_L",
+          "label": "EYE_Close_L",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Close_R",
+          "label": "EYE_Close_R",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Fun",
+          "label": "EYE_Fun",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Highlight_Hide",
+          "label": "EYE_Highlight_Hide",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Iris_Hide",
+          "label": "EYE_Iris_Hide",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Joy",
+          "label": "EYE_Joy",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Joy_L",
+          "label": "EYE_Joy_L",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Joy_R",
+          "label": "EYE_Joy_R",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Natural",
+          "label": "EYE_Natural",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Sorrow",
+          "label": "EYE_Sorrow",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Spread",
+          "label": "EYE_Spread",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_EYE_Surprised",
+          "label": "EYE_Surprised",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "morph_mth",
+      "label": "Morphs: Mouth",
+      "sliders": [
+        {
+          "id": "morph.Fcl_MTH_A",
+          "label": "MTH_A",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Angry",
+          "label": "MTH_Angry",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Close",
+          "label": "MTH_Close",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Down",
+          "label": "MTH_Down",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_E",
+          "label": "MTH_E",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Fun",
+          "label": "MTH_Fun",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_I",
+          "label": "MTH_I",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Joy",
+          "label": "MTH_Joy",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Large",
+          "label": "MTH_Large",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Neutral",
+          "label": "MTH_Neutral",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_O",
+          "label": "MTH_O",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_SkinFung",
+          "label": "MTH_SkinFung",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_SkinFung_L",
+          "label": "MTH_SkinFung_L",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_SkinFung_R",
+          "label": "MTH_SkinFung_R",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Small",
+          "label": "MTH_Small",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Sorrow",
+          "label": "MTH_Sorrow",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Surprised",
+          "label": "MTH_Surprised",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_U",
+          "label": "MTH_U",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_MTH_Up",
+          "label": "MTH_Up",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "morph_all",
+      "label": "Morphs: Full Face",
+      "sliders": [
+        {
+          "id": "morph.Fcl_ALL_Angry",
+          "label": "ALL_Angry",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_ALL_Fun",
+          "label": "ALL_Fun",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_ALL_Joy",
+          "label": "ALL_Joy",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_ALL_Neutral",
+          "label": "ALL_Neutral",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_ALL_Sorrow",
+          "label": "ALL_Sorrow",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_ALL_Surprised",
+          "label": "ALL_Surprised",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "morph_ha",
+      "label": "Morphs: Teeth",
+      "sliders": [
+        {
+          "id": "morph.Fcl_HA_Fung1",
+          "label": "HA_Fung1",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Fung1_Low",
+          "label": "HA_Fung1_Low",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Fung1_Up",
+          "label": "HA_Fung1_Up",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Fung2",
+          "label": "HA_Fung2",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Fung2_Low",
+          "label": "HA_Fung2_Low",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Fung2_Up",
+          "label": "HA_Fung2_Up",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Fung3",
+          "label": "HA_Fung3",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Fung3_Low",
+          "label": "HA_Fung3_Low",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Fung3_Up",
+          "label": "HA_Fung3_Up",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Hide",
+          "label": "HA_Hide",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Short",
+          "label": "HA_Short",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Short_Low",
+          "label": "HA_Short_Low",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "morph.Fcl_HA_Short_Up",
+          "label": "HA_Short_Up",
+          "min": 0,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        }
+      ]
+    },
+    {
+      "id": "neck",
+      "label": "Neck",
+      "sliders": [
+        {
+          "id": "head.yaw",
+          "label": "Head Yaw",
+          "min": -1,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        },
+        {
+          "id": "head.pitch",
+          "label": "Head Pitch",
+          "min": -1,
+          "max": 1,
+          "default": 0,
+          "step": 0.01
+        }
+      ]
+    }
+  ]
+}

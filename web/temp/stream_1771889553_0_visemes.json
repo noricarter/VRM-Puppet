@@ -1,0 +1,123 @@
+{
+  "metadata": {
+    "soundFile": "/home/nori/PycharmProjects/VRM-Puppet/web/temp/stream_1771889553_0.wav",
+    "duration": 3.2
+  },
+  "mouthCues": [
+    {
+      "start": 0.0,
+      "end": 0.15,
+      "value": "X"
+    },
+    {
+      "start": 0.15,
+      "end": 0.2,
+      "value": "B"
+    },
+    {
+      "start": 0.2,
+      "end": 0.31,
+      "value": "E"
+    },
+    {
+      "start": 0.31,
+      "end": 0.45,
+      "value": "F"
+    },
+    {
+      "start": 0.45,
+      "end": 0.66,
+      "value": "B"
+    },
+    {
+      "start": 0.66,
+      "end": 0.8,
+      "value": "D"
+    },
+    {
+      "start": 0.8,
+      "end": 1.01,
+      "value": "B"
+    },
+    {
+      "start": 1.01,
+      "end": 1.08,
+      "value": "C"
+    },
+    {
+      "start": 1.08,
+      "end": 1.29,
+      "value": "B"
+    },
+    {
+      "start": 1.29,
+      "end": 1.5,
+      "value": "C"
+    },
+    {
+      "start": 1.5,
+      "end": 1.57,
+      "value": "E"
+    },
+    {
+      "start": 1.57,
+      "end": 1.64,
+      "value": "G"
+    },
+    {
+      "start": 1.64,
+      "end": 1.78,
+      "value": "E"
+    },
+    {
+      "start": 1.78,
+      "end": 1.92,
+      "value": "B"
+    },
+    {
+      "start": 1.92,
+      "end": 1.99,
+      "value": "C"
+    },
+    {
+      "start": 1.99,
+      "end": 2.13,
+      "value": "B"
+    },
+    {
+      "start": 2.13,
+      "end": 2.27,
+      "value": "F"
+    },
+    {
+      "start": 2.27,
+      "end": 2.48,
+      "value": "B"
+    },
+    {
+      "start": 2.48,
+      "end": 2.55,
+      "value": "F"
+    },
+    {
+      "start": 2.55,
+      "end": 2.83,
+      "value": "B"
+    },
+    {
+      "start": 2.83,
+      "end": 2.9,
+      "value": "E"
+    },
+    {
+      "start": 2.9,
+      "end": 2.97,
+      "value": "B"
+    },
+    {
+      "start": 2.97,
+      "end": 3.2,
+      "value": "X"
+    }
+  ]
+}
