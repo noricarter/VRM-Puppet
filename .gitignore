@@ -1,9 +1,53 @@
+# ─── IDE / OS ─────────────────────────────────────────────────────────────────
 .idea/
-*.bak
-dump.js
-venv/
-__pycache__/
+.vscode/
 .DS_Store
+Thumbs.db
 Downloads/
+*.bak
+*.swp
+*.swo
+dump.js
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+venv/
+.venv/
+.env
+dist/
+build/
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
 *.log
+logs/
+
+# ─── Node ─────────────────────────────────────────────────────────────────────
 node_modules/
+.npm/
+
+# ─── Generated Runtime Audio & Media ─────────────────────────────────────────
+# TTS output, lipsync wav/mp4 files produced at runtime — never commit these
+web/temp/
+standalone_app/temp/
+*.wav
+*.mp4
+*.lipsync.json
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+# Live SQLite state — not source code, regenerated on first run
+core/persistence.db
+vrm_puppet.db
+*.db
+
+# ─── Screenshots & Test Artifacts ─────────────────────────────────────────────
+test_screenshot.png
+*.screenshot.png
+
+# ─── VRM / Character Binaries ─────────────────────────────────────────────────
+# Large binary assets — track manifest.json but not the VRM files themselves
+assets/characters/**/*.vrm
+characters/**/*.vrm
