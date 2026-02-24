@@ -48,6 +48,12 @@ test_screenshot.png
 *.screenshot.png
 
 # ─── VRM / Character Binaries ─────────────────────────────────────────────────
-# Large binary assets — track manifest.json but not the VRM files themselves
-assets/characters/**/*.vrm
-characters/**/*.vrm
+# Large binary assets — distribute separately, never commit
+*.vrm
+*.vroid
+*.fbx
+*.glb
+*.gltf
+assets/vrms/
+assets/voices/*.wav
+assets/voices/*.mp3
