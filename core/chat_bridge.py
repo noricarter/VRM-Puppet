@@ -14,12 +14,20 @@ from brain_tool import BrainTool
 from tts_engine import TTSEngine
 import db_manager
 from prompt_composer import PromptComposer
+from search_util import search_and_summarize
 
 _composer = PromptComposer()
 
+def get_default_actor_id():
+    try:
+        actors = db_manager.get_all_actors()
+        return actors[0]['actor_id'] if actors else "Unknown_Actor"
+    except Exception:
+        return "Unknown_Actor"
+
 # --- IDLE MONITOR STATE ---
 _last_activity_time = time.time()
-_active_actor_id = "Laura_Stevens" # Default
+_active_actor_id = None # Set dynamically on first chat
 _bridge_initialized = False
 
 # --- CONFIG ---
@@ -117,8 +125,8 @@ class StreamHandler:
     def push(self, event_type, data):
         self.msg_queue.put({"type": event_type, "data": data})
 
-    def get(self):
-        return self.msg_queue.get()
+    def get(self, timeout=None):
+        return self.msg_queue.get(timeout=timeout)
 
 # Global stream instance (Persistent Singleton)
 streamer = StreamHandler()
@@ -149,10 +157,12 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
     lib_str = format_action_library()
     known_contexts = db_manager.kg_get_contexts(actor_id)
     
-    # Determine active context if not fixed
+    # Determine active context
     if not active_context:
-        if trigger_message.startswith('[OBSERVER_PULSE]') or trigger_message.startswith('[AUDIOBOOK_PULSE]'):
+        if trigger_message.startswith('[OBSERVER_PULSE]'):
             active_context = db_manager.get_reality(f"observer_context_{actor_id}") or "observer"
+        elif trigger_message.startswith('[AUDIOBOOK_PULSE]'):
+            active_context = "audiobook"
         else:
             active_context = "user_dialogue"
 
@@ -236,6 +246,18 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
             streamer.push("error", f"Brain disconnect: {str(oe)}")
             raise oe
 
+        # --- Safe Defaults ---
+        # Prevent UnboundLocalError if JSON extraction fails completely
+        thought = "Thinking..."
+        intent = ""
+        selection_type = "no_action"
+        selected_action = None
+        confidence = 0.0
+        response_mode = "speak"
+        memory_note = ""
+        search_query = None
+        ai_full_text = ""
+
         try:
             print(f"Raw Response: {raw_json}")
             
@@ -276,6 +298,18 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
             # Safe extraction for fields that might be explicitly returned as `null` by the LLM
             memory_note = reasoning_data.get('memory_note')
             memory_note = memory_note.strip() if memory_note else ''
+            
+            search_query = reasoning_data.get('search_query')
+            search_query = search_query.strip() if search_query else None
+            
+            # --- MANDATORY ACKNOWLEDGEMENT ---
+            # If we are searching but have no response text, synthesize one
+            if search_query and not ai_full_text and response_mode != 'absorb':
+                ai_full_text = f"Sure! I'll look up information about '{search_query}' right away."
+
+            elif response_mode == 'speak' and not ai_full_text:
+                # Fallback for silent speak mode
+                ai_full_text = "Hmm, interesting. Let me think about that one."
             
             # Enforce Threshold for execution only
             if selection_type == 'appropriate_action' and (not selected_action or confidence < 0.7):
@@ -410,9 +444,37 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                     "stats": {"energy": new_energy}
                 })
 
-        # 4. Finish
-        streamer.push("done", {})
-        print("--- Stream Complete ---")
+        # 4. Wait to Finish if Searching
+        if not search_query:
+            streamer.push("done", {})
+            print("--- Stream Complete ---")
+        
+        # 5. Execute explicit Web Research (if requested)
+        if search_query:
+            # Execute search synchronously within this background thread context
+            print(f"--- Triggering Web Research: {search_query} ---")
+            streamer.push("system_warn", {"text": f"🔍 Researching: {search_query}"})
+            try:
+                research_results = search_and_summarize(search_query)
+                # Trigger a follow-up Research Pulse back into the queue
+                research_msg = f"[RESEARCH_RESULT] Search query: '{search_query}'\nFindings:\n{research_results}"
+                print(f"--- [Research] Triggering follow-up for: {search_query} ---")
+                
+                # We reuse the same messages but append the findings
+                followup_messages = messages + [{"role": "assistant", "content": json.dumps(reasoning_data)}, {"role": "user", "content": research_msg}]
+                chat_queue.put({
+                    "messages": followup_messages,
+                    "actor_id": actor_id,
+                    "model": requested_model,
+                    "voice_desc": voice_desc,
+                    "images": images,
+                    "active_context": active_context if 'active_context' in locals() else "research_loop"
+                })
+            except Exception as se:
+                print(f"Web Research Error: {se}")
+                streamer.push("system_warn", {"text": f"🕳️ Research Failed: {str(se)}"})
+                streamer.push("done", {})
+                print("--- Stream Complete (Search Failed) ---")
         
     except Exception as e:
         print(f"Stream Error: {e}")
@@ -485,7 +547,17 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
             # Keep connection open until client disconnects or we break
             while True:
                 try:
-                    msg = streamer.get() # Blocking get
+                    try:
+                        import queue
+                        msg = streamer.get(timeout=5)
+                    except queue.Empty:
+                        # Send an SSE comment as a keep-alive ping every 5 seconds
+                        # This prevents the frontend EventSource from timeout disconnects 
+                        # during very long TTS generation pauses.
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+                        continue
+                        
                     event_data = f"data: {json.dumps(msg)}\n\n"
                     self.wfile.write(event_data.encode('utf-8'))
                     self.wfile.flush()
@@ -498,11 +570,11 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
             print("--- SSE Stream Closed ---")
 
         elif self.path == '/kg_contexts':
-            # GET /kg_contexts?actor_id=Laura_Stevens
+            # GET /kg_contexts?actor_id=...
             actor_id_param = urllib.parse.urlparse(self.path)
             from urllib.parse import parse_qs
             qs = parse_qs(urllib.parse.urlparse(self.path).query)
-            aid = (qs.get('actor_id') or [''])[0] or 'Laura_Stevens'
+            aid = (qs.get('actor_id') or [''])[0] or get_default_actor_id()
             contexts = db_manager.kg_get_contexts(aid)
             self._set_headers()
             self.wfile.write(json.dumps({'contexts': contexts}).encode('utf-8'))

@@ -73,9 +73,14 @@
                         <input type="checkbox" id="face-camera" style="width: auto; margin: 0;" checked>
                         <label for="face-camera" style="margin: 0;">Face Camera (Auto-Orientation)</label>
                     </div>
-                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
-                        <input type="checkbox" id="observer-mode" style="width: auto; margin: 0;">
-                        <label for="observer-mode" style="margin: 0;">Observer Mode (Watch Shows)</label>
+                    <div class="form-group">
+                        <label for="observer-mode">Observer Role</label>
+                        <select id="observer-mode">
+                            <option value="off">Off (Deaf & Blind)</option>
+                            <option value="observer">Watching a TV Show / Video</option>
+                            <option value="audiobook">Listening to Audiobook</option>
+                            <option value="stream_companion">Discord Stream Companion</option>
+                        </select>
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="accent">Save Profile</button>

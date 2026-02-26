@@ -15,6 +15,7 @@ The `extra_context` argument is the RAG Phase 2 hook — pass pre-fetched chunks
 import re
 import sys
 import os
+from datetime import datetime
 
 # Allow import from either core/ or project root
 _CORE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -109,8 +110,12 @@ class PromptComposer:
 
         # ---- Layer 1: Identity Core ----------------------------------------
         identity = db_manager.get_actor_identity(actor_id)
+        current_time = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+        
         if identity:
             id_block = f"--- WHO I AM ---\n"
+            id_block += f"Current System Time: {current_time}\n"
+            id_block += "CRITICAL: The system time above is the TRUE current date. Always trust it over your internal training data. You are living in the present.\n"
             if identity.get('name'):
                 id_block += f"My name is {identity['name']}.\n"
             
@@ -171,7 +176,9 @@ class PromptComposer:
 5. NO roleplay descriptions, NO narration, NO *stage directions*.
 6. If you want to emphasize a word, use UPPERCASE instead of asterisks or italics.
 7. Keep responses short and conversational.
-8. MANDATORY: Even if searching, you MUST acknowledge it in the 'response' field (e.g. "Checking that now.").
+8. WEB SEARCH TOOL: You HAVE internet access! If the user explicitly asks you to "search", "look up" something, or asks about current real-world events, you MUST set 'search_query' to the search term (e.g. "Tokyo weather"). Otherwise, keep it null.
+9. If searching, you MUST acknowledge it in the 'response' field (e.g. "I'm looking that up right now.").
+10. ANTI-HALLUCINATION: If the user provides a [RESEARCH_RESULT] block and the exact answer is NOT in the text, you MUST admit you couldn't find it. DO NOT invent dates, facts, or schedules.
 
 IDEAL RESPONSE EXAMPLES (NO ASTERISKS):
 - "It truly is wonderful to see you again. My day feels brighter already."
@@ -242,6 +249,7 @@ JSON OUTPUT FORMAT (MANDATORY STRUCTURE):
   "confidence": 0.9,
   "response_mode": "speak | absorb | speak_and_absorb",
   "memory_note": "Knowledge to save.",
+  "search_query": "Search term ONLY if explicitly requested, else null",
   "response": "Clean spoken dialogue."
 }}
 

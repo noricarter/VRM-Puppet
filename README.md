@@ -21,6 +21,7 @@ A real-time AI character system. You create a VRM avatar, give her a voice, conn
    - [The transparent window caveat](#the-transparent-window-caveat)
    - [Hands-Free mode](#hands-free-mode)
    - [Observer mode](#observer-mode)
+   - [Discord Audio Puppeteering](#discord-audio-puppeteering)
 6. [Configuration Quick Reference](#configuration-quick-reference)
 7. [Project Structure](#project-structure)
 8. [Troubleshooting](#troubleshooting)
@@ -133,13 +134,14 @@ print('Done.')
 "
 ```
 
-Then run the migration script to set up the full modular persona system:
+Then run the migration script to set up the full modular persona system. This script seeds the database with the character's core identity, moods, and mode prompts. It also accepts your name so the character knows who they are talking to from the start:
 
 ```bash
-python core/migrate_actor.py YourCharacter
+# Usage: python core/migrate_actor.py <CharacterName> <YourName>
+python core/migrate_actor.py YourCharacter Nori
 ```
 
-> The migration seeds your character with a default set of moods and mode prompts. You can then edit everything through the Character Editor in the devtool.
+> The migration seeds your character with a default set of moods and mode prompts tailored to your name. You can then edit everything through the Character Editor in the devtool.
 
 ---
 
@@ -289,6 +291,12 @@ python -c "import speech_recognition as sr; [print(i, sr.Microphone.list_microph
 ```
 
 > Observer mode transcripts while the AI is speaking are automatically discarded to prevent feedback loops.
+
+---
+
+### Discord Audio Puppeteering
+
+If you want to use the Standalone HUD App to puppeteer the AI inside a Discord voice call (so that your friends can hear her native text-to-speech engine mixed alongside your own physical microphone), you must bypass Discord's aggressive monitor filtering. Please see the dedicated [Discord OBS/Virtual Microphone Audio Routing Guide](documentation/discord_audio_routing.md) for the exact Linux PulseAudio commands required to configure the virtual mixer pipeline.
 
 ---
 

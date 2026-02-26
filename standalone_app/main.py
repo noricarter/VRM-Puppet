@@ -153,11 +153,14 @@ class HUDAPI:
         self.window = None
         self.hud_visible = True
         self.hands_free_enabled = False
-        self.observer_mode_enabled = False
         self.is_speaking = False  # True while TTS audio is actively playing
+        
+        self.observer_role = "off" # "off", "generic", "stream_companion"
         self._hands_free_thread = None
         self._observer_audio_thread = None
         self._observer_heartbeat_thread = None
+        # Add new dedicated Discord stream listener thread
+        self._discord_stream_thread = None
         self._audio_buffer = []  # List of strings captured from system audio
         self._last_interaction_time = time.time()
 
@@ -365,22 +368,32 @@ class HUDAPI:
                 p.terminate()
             raise e
 
-    def toggle_observer_mode(self, enabled):
-        """Starts or stops the autonomous observer heartbeat."""
-        self.observer_mode_enabled = enabled
-        print(f"[HUD] Observer Mode: {'ENABLED' if enabled else 'DISABLED'}")
+    def set_observer_role(self, role):
+        """Starts or stops the autonomous observer threads based on role."""
+        self.observer_role = role
+        print(f"[HUD] Observer Role updated to: {role}")
         
-        if enabled:
-            self._last_interaction_time = time.time()
-            # 1. Start Heartbeat
+        if role == "off":
+            return True
+
+        self._last_interaction_time = time.time()
+
+        if role in ["observer", "audiobook"]:
+            # Standard Observer (30s heartbeat + monitor recording)
             if not self._observer_heartbeat_thread or not self._observer_heartbeat_thread.is_alive():
                 self._observer_heartbeat_thread = threading.Thread(target=self._observer_heartbeat_loop, daemon=True)
                 self._observer_heartbeat_thread.start()
             
-            # 2. Start System Audio Capture
             if not self._observer_audio_thread or not self._observer_audio_thread.is_alive():
                 self._observer_audio_thread = threading.Thread(target=self._observer_audio_loop, daemon=True)
                 self._observer_audio_thread.start()
+        
+        elif role == "stream_companion":
+            # Discord Streamer Role (Voice-Activated, immediate screenshot capture)
+            if not self._discord_stream_thread or not self._discord_stream_thread.is_alive():
+                self._discord_stream_thread = threading.Thread(target=self._discord_stream_loop, daemon=True)
+                self._discord_stream_thread.start()
+
         return True
 
     def _observer_audio_loop(self):
@@ -418,12 +431,38 @@ class HUDAPI:
         try:
             with sr.Microphone(device_index=monitor_index) as source:
                 print(f"[HUD][Observer] Listening for show dialogue on device {monitor_index}...")
-                while self.observer_mode_enabled:
+                
+                class FeedbackGuardStream:
+                    def __init__(self, stream, hud):
+                        self._stream = stream
+                        self._hud = hud
+                        self.heard_while_speaking = False
+                        
+                    def __getattr__(self, name):
+                        return getattr(self._stream, name)
+                        
+                    def close(self):
+                        self._stream.close()
+                        
+                    def stop_stream(self):
+                        self._stream.stop_stream()
+                        
+                    def read(self, size):
+                        chunk = self._stream.read(size)
+                        if self._hud.is_speaking:
+                            self.heard_while_speaking = True
+                        return chunk
+
+                guarded_stream = FeedbackGuardStream(source.stream, self)
+                source.stream = guarded_stream
+
+                while self.observer_role in ["observer", "audiobook"]:
                     try:
+                        guarded_stream.heard_while_speaking = False
                         audio = r.listen(source, timeout=3, phrase_time_limit=15)
 
                         # Discard monitor audio captured while the AI is speaking (feedback guard)
-                        if self.is_speaking:
+                        if guarded_stream.heard_while_speaking or self.is_speaking:
                             print("[HUD][Observer] Discarding transcript — AI is speaking (feedback suppressed)")
                             continue
 
@@ -442,7 +481,7 @@ class HUDAPI:
                     except sr.WaitTimeoutError:
                         continue
                     except Exception as e:
-                        if self.observer_mode_enabled:
+                        if self.observer_role in ["observer", "audiobook"]:
                             print(f"[HUD][Observer] Audio Capture Error: {e}")
                             time.sleep(2)
         except Exception as e:
@@ -453,7 +492,7 @@ class HUDAPI:
     def _observer_heartbeat_loop(self):
         """Wait for silence, then trigger observation pulse."""
         print("[HUD][Observer] Autonomous Heartbeat Started")
-        while self.observer_mode_enabled:
+        while self.observer_role in ["observer", "audiobook"]:
             time.sleep(5) # Check Every 5s
             
             idle_time = time.time() - self._last_interaction_time
@@ -486,6 +525,140 @@ class HUDAPI:
                 # 4. Reset timer
                 self._last_interaction_time = time.time()
                 print("[HUD][Observer] Pulse complete. Timer reset.")
+
+    def _discord_stream_loop(self):
+        """Voice-Activated Discord Stream Companion Loop."""
+        print("[HUD][Discord] Stream Listener Starting...")
+        r = sr.Recognizer()
+        r.pause_threshold = 1.0
+        r.dynamic_energy_threshold = True
+
+        monitor_index = None
+        import pyaudio
+        import math
+        p = pyaudio.PyAudio()
+        monitor_name = "Unknown"
+        try:
+            for i in range(p.get_device_count()):
+                info = p.get_device_info_by_index(i)
+                name = info.get('name', '').lower()
+                if 'monitor' in name or 'loopback' in name or 'virm_loop' in name:
+                    monitor_index = i
+                    monitor_name = info.get('name')
+                    break
+            if monitor_index is None:
+                for i in range(p.get_device_count()):
+                    info = p.get_device_info_by_index(i)
+                    dev_name = info.get('name', '').lower()
+                    if info.get('maxInputChannels') > 0 and ('pulse' in dev_name or 'default' in dev_name):
+                        monitor_index = i
+                        monitor_name = info.get('name')
+                        break
+        finally:
+            p.terminate()
+
+        def _instant_screenshot_worker(result_container):
+            """Captures the screen instantly in a daemon thread."""
+            try:
+                print("[HUD][Discord] 📸 Speech detected! Snapping instant screenshot...")
+                b64 = self.capture_screen()
+                result_container.append(b64)
+            except Exception as e:
+                print(f"[HUD][Discord] Instant screenshot failed: {e}")
+                result_container.append(None)
+
+        try:
+            with sr.Microphone(device_index=monitor_index) as source:
+                print(f"[HUD][Discord] Calibrating to device {monitor_index} ({monitor_name})...")
+                r.adjust_for_ambient_noise(source, duration=1.0)
+                print(f"[HUD][Discord] Energy Threshold settled at: {r.energy_threshold}")
+                print("[HUD][Discord] Listening purely for voice activity on Discord stream...")
+
+                class DiscordGuardStream:
+                    def __init__(self, stream, hud, recognizer):
+                        self._stream = stream
+                        self._hud = hud
+                        self._r = recognizer
+                        self.heard_while_speaking = False
+                        self.screenshot_triggered = False
+                        self.screenshot_results = []
+
+                    def __getattr__(self, name):
+                        return getattr(self._stream, name)
+
+                    def close(self):
+                        self._stream.close()
+                        
+                    def stop_stream(self):
+                        self._stream.stop_stream()
+
+                    def read(self, size):
+                        chunk = self._stream.read(size)
+                        try:
+                            if self._hud.is_speaking:
+                                self.heard_while_speaking = True
+                                
+                            import audioop
+                            rms = audioop.rms(chunk, source.SAMPLE_WIDTH)
+                            
+                            # Muted to prevent log spam
+
+                            if not self.screenshot_triggered and not self._hud.is_speaking:
+                                if rms > self._r.energy_threshold:
+                                    print(f"[HUD][Discord] RMS {rms} crossed threshold {self._r.energy_threshold}!")
+                                    self.screenshot_triggered = True
+                                    threading.Thread(target=_instant_screenshot_worker, args=(self.screenshot_results,), daemon=True).start()
+                        except Exception as e:
+                            print(f"[HUD][Discord/Debug] Hook Error: {e}")
+                        return chunk
+
+                discord_stream = DiscordGuardStream(source.stream, self, r)
+                source.stream = discord_stream
+
+                while self.observer_role == "stream_companion":
+                    try:
+                        # Reset flags for the new phrase
+                        discord_stream.heard_while_speaking = False 
+                        discord_stream.screenshot_triggered = False
+                        discord_stream.screenshot_results.clear()
+
+                        # This blocks until phrase is finished
+                        print("[HUD][Discord] Waiting for speech...")
+                        audio = r.listen(source, timeout=1, phrase_time_limit=15)
+
+                        # Discard anything heard while she was speaking to prevent feedback
+                        if discord_stream.heard_while_speaking or self.is_speaking:
+                            print("[HUD][Discord] Discarding audio — she was speaking")
+                            continue
+
+                        print("[HUD][Discord] Transcribing phrase...")
+                        text = self._transcribe_audio(audio, label='DiscordStream')
+                        
+                        if self.is_speaking:
+                             continue
+
+                        if text and len(text.strip()) > 3:
+                            print(f"[HUD][Discord] Heard: {text}")
+                            
+                            # Grab the screenshot that was secretly taken at the start of the phrase
+                            b64_vision = None
+                            if len(discord_stream.screenshot_results) > 0:
+                                b64_vision = discord_stream.screenshot_results[0]
+                                
+                            if self.window:
+                                print("[HUD][Discord] Pushing Voice-Activated Pulse to Chat Bridge...")
+                                self.window.evaluate_js(f"triggerObserverPulse({json.dumps(b64_vision)}, {json.dumps(text)})")
+                                
+                    except sr.WaitTimeoutError:
+                        continue
+                    except Exception as e:
+                        if self.observer_role == "stream_companion":
+                            print(f"[HUD][Discord] Capture error: {e}")
+                            time.sleep(2)
+        except Exception as e:
+             print(f"[HUD][Discord] FATAL LOOP ERROR: {e}")
+
+        print("[HUD][Discord] Stream Listener Exited.")
 
 def _screenshot_to_chat(api):
     """Capture screen and inject result into the JS chat as an attached image."""

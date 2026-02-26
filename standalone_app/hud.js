@@ -16,7 +16,9 @@ const state = {
     handsFreeActive: false,
     attachedImage: null,    // Base64 string of the attached image
     pendingMessage: null,   // Queued message to send after current stream finishes
-    pendingImage: null      // Queued image to send after current stream finishes
+    pendingImage: null,     // Queued image to send after current stream finishes
+    activeContext: null,    // Context for observer mode
+    inputMode: 'text'       // 'text' or 'voice'
 };
 
 // --- DOM Elements ---
@@ -191,13 +193,16 @@ async function initHUD() {
 
         console.log("[HUD][Observer] Received Pulse. Vision Attached: " + (b64Vision ? "YES" : "NO"));
 
-        let message = "[OBSERVER_PULSE] (You are watching a show. React to what you see/hear.)";
+        const activeRole = formFields.observerMode.value;
+
+        let message = `[OBSERVER_PULSE] (Current Role: ${activeRole})`;
         if (systemTranscript && systemTranscript.trim().length > 0) {
-            message += "\n\nShow Dialogue Transcript:\n\"" + systemTranscript + "\"";
+            message += "\n\nTranscript:\n\"" + systemTranscript + "\"";
         }
 
         // Attach the screenshot to the global state so it gets sent
         state.attachedImage = b64Vision;
+        state.activeContext = activeRole; // Store context for the chat bridge
 
         // Auto-submit
         chatInput.value = message;
@@ -217,9 +222,9 @@ async function initHUD() {
     document.addEventListener('keydown', resetPythonIdle);
 
     formFields.observerMode.addEventListener("change", (e) => {
-        const enabled = e.target.checked;
-        console.log("[HUD][Observer] UI Toggle Changed:", enabled);
-        window.pywebview.api.toggle_observer_mode(enabled);
+        const role = e.target.value;
+        console.log("[HUD][Observer] UI Role Changed:", role);
+        window.pywebview.api.set_observer_role(role);
     });
 
     // --- Global STT Auto-Submit ---
@@ -350,12 +355,12 @@ window.loadCharacterProfile = async (actor) => {
     const isFaceCamEnabled = (manifest.face_camera !== undefined) ? !!manifest.face_camera : true;
     formFields.faceCamera.checked = isFaceCamEnabled;
 
-    const observerEnabled = !!manifest.observer_mode;
-    formFields.observerMode.checked = observerEnabled;
+    const observerRole = manifest.observer_role || "off";
+    formFields.observerMode.value = observerRole;
 
     // Apply Orientation & Observer State
     viewer.setFaceCamera(isFaceCamEnabled);
-    window.pywebview.api.toggle_observer_mode(observerEnabled);
+    window.pywebview.api.set_observer_role(observerRole);
 
     // Load VRM
     try {
@@ -406,7 +411,7 @@ async function saveCurrentProfile() {
         voice_description: formFields.voiceDesc.value,
         voice_reference_audio: formFields.voiceRef.value,
         face_camera: formFields.faceCamera.checked,
-        observer_mode: formFields.observerMode.checked,
+        observer_role: formFields.observerMode.value,
         pos_x: pos.x,
         pos_y: pos.y,
         pos_z: pos.z
@@ -513,7 +518,8 @@ async function handleCharacterChat(text, imageJson) {
                         message: text,
                         actor_id: currentActorId,
                         model: currentModel,
-                        images: imageJson ? [imageJson] : []
+                        images: imageJson ? [imageJson] : [],
+                        active_context: state.activeContext || null
                     })
                 });
                 if (resp.ok) break;
@@ -538,6 +544,7 @@ async function handleCharacterChat(text, imageJson) {
             eventSource.close();
             state.isStreaming = false;
             _flushPendingMessage();
+            state.activeContext = null; // Clear context after sending
         }, 15000);
 
         const resetWatchdog = () => {
@@ -546,6 +553,7 @@ async function handleCharacterChat(text, imageJson) {
                 console.warn("[HUD] SSE Watchdog Triggered: Stream hanging...");
                 eventSource.close();
                 state.isStreaming = false;
+                state.activeContext = null; // Clear context after sending
             }, 10000); // 10s between chunks
         };
 
@@ -563,7 +571,7 @@ async function handleCharacterChat(text, imageJson) {
                     addChatMessage("thinking", msg.data.note);
                     addMindEntry("thinking", "🔇 " + msg.data.note);
                     // Fire thinking animation so her body reacts
-                    viewer.playIdleAnimation("assets/animations/idle/oneshot/fbx/thinking.fbx", { loop: false });
+                    viewer.playIdleAnimation("/assets/animations/idle/oneshot/fbx/thinking.fbx", { loop: false });
                     break;
                 case "kg_write":
                     addMindEntry("kg_write", "✅ KG: " + msg.data.text);
@@ -599,6 +607,7 @@ async function handleCharacterChat(text, imageJson) {
                     eventSource.close();
                     state.isStreaming = false;
                     _flushPendingMessage();
+                    state.activeContext = null; // Clear context after sending
                     break;
                 case "error":
                     console.error("[HUD] Stream Error:", msg.data);
@@ -607,6 +616,7 @@ async function handleCharacterChat(text, imageJson) {
                     eventSource.close();
                     state.isStreaming = false;
                     _flushPendingMessage();
+                    state.activeContext = null; // Clear context after sending
                     break;
             }
         };
@@ -617,12 +627,14 @@ async function handleCharacterChat(text, imageJson) {
             eventSource.close();
             state.isStreaming = false;
             _flushPendingMessage();
+            state.activeContext = null; // Clear context after sending
         };
 
     } catch (err) {
         console.error("[HUD] Chat Error:", err);
-        addChatMessage("system", "Blocked by Bridge connectivity.");
+        addChatMessage("system", `Error: ${err.message}`);
         state.isStreaming = false;
+        state.activeContext = null; // Clear context after sending
     }
 }
 

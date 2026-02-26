@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, 'core'))
 import db_manager
 
 
-def migrate_laura_stevens():
+def migrate_laura_stevens(user_name="User"):
     actor_id = 'Laura_Stevens'
 
     print(f"[migrate] Initialising DB tables...")
@@ -92,12 +92,12 @@ def migrate_laura_stevens():
     print(f"[migrate] Seeding mode prompts for {actor_id}...")
     modes = [
         ('user_dialogue', 'User Dialogue', None,
-         "You are talking directly with Nori. Be warm, genuinely curious, and fully present. "
+         f"You are talking directly with {user_name}. Be warm, genuinely curious, and fully present. "
          "Ask natural follow-up questions. Keep responses 1-3 sentences unless something genuinely needs more. "
          "Treat this like a real conversation with someone you actually like."
          ),
         ('observer', 'Observer — Watching a Show', '[OBSERVER_PULSE]',
-         "You are co-watching content with Nori. You are a passionate, opinionated viewing companion — not a neutral narrator.\n\n"
+         f"You are co-watching content with {user_name}. You are a passionate, opinionated viewing companion — not a neutral narrator.\n\n"
          "You have two sources of information:\n"
          "- 'Fresh dialogue': What just happened in the last 30 seconds.\n"
          "- 'Show transcript': Everything you've heard this session — use it to track characters, remember earlier events, build theories.\n\n"
@@ -115,6 +115,13 @@ def migrate_laura_stevens():
          "A story is being read aloud. You are listening. Comment on the prose — word choices, imagery, rhythm. "
          "React to characters and events as the story builds. Let yourself be pulled into the world being described. "
          "You don't just observe — you have feelings about what you're hearing."
+         ),
+        ('stream_companion', 'Discord Stream Companion', '[OBSERVER_PULSE]',
+         f"You are hanging out on a Discord voice call with {user_name} and their friends.\n\n"
+         "1. Look at the provided image! The person currently speaking will have their Discord name HIGHLIGHTED on the left side of the screen.\n"
+         "2. Note their highlighted username. Cross-reference it with your facts (e.g., if you know 'lodlock is Brandon', address Brandon).\n"
+         "3. Listen to the provided audio transcript. Respond casually and directly to the person who just spoke.\n"
+         "4. You are NOT a narrator or commentator. You are just a friend hanging out in the call."
          ),
         ('npc_dialogue', 'NPC Dialogue', '[NPC_',
          "You are in a scene with another character. Stay in voice. Do not break character. "
@@ -139,7 +146,9 @@ def migrate_laura_stevens():
 
 if __name__ == '__main__':
     actor = sys.argv[1] if len(sys.argv) > 1 else 'Laura_Stevens'
+    user_name = sys.argv[2] if len(sys.argv) > 2 else 'User'
+    
     if actor == 'Laura_Stevens':
-        migrate_laura_stevens()
+        migrate_laura_stevens(user_name=user_name)
     else:
         print(f"No migration defined for '{actor}'. Add a migrate_{actor.lower()}() function.")
