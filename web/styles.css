@@ -50,6 +50,13 @@ body {
   letter-spacing: 0.2px;
 }
 
+.topbar-left,
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .icon-btn {
   background: transparent;
   color: var(--text);
@@ -57,6 +64,10 @@ body {
   border-radius: 10px;
   width: 38px;
   height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   cursor: pointer;
 }
 

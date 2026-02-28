@@ -557,6 +557,9 @@ async function handleCharacterChat(text, imageJson) {
             }, 10000); // 10s between chunks
         };
 
+        // 2.5 Audio Queue for sequential playback
+        let audioQueue = Promise.resolve();
+
         eventSource.onmessage = async (event) => {
             resetWatchdog();
             const msg = JSON.parse(event.data);
@@ -588,19 +591,23 @@ async function handleCharacterChat(text, imageJson) {
                     addChatMessage("assistant", msg.data.text);
                     const audioUrl = msg.data.audioUrl.replace("./", "/web/");
                     const visemeUrl = msg.data.visemeUrl.replace("./", "/web/");
-                    // Mute hands-free mic while she speaks (prevents feedback loop)
-                    if (window.pywebview?.api?.set_speaking) {
-                        window.pywebview.api.set_speaking(true);
-                    }
-                    try {
-                        await viewer.playTestLipSync(audioUrl, visemeUrl);
-                    } finally {
-                        // Always re-enable mic even if playback errors
+
+                    // Enqueue the playback so she doesn't talk over herself
+                    audioQueue = audioQueue.then(async () => {
+                        // Mute hands-free mic while she speaks (prevents feedback loop)
                         if (window.pywebview?.api?.set_speaking) {
-                            // Small delay so the audio buffer fully clears before listening resumes
-                            setTimeout(() => window.pywebview.api.set_speaking(false), 500);
+                            window.pywebview.api.set_speaking(true);
                         }
-                    }
+                        try {
+                            await viewer.playTestLipSync(audioUrl, visemeUrl);
+                        } finally {
+                            // Always re-enable mic even if playback errors
+                            if (window.pywebview?.api?.set_speaking) {
+                                // Small delay so the audio buffer fully clears before listening resumes
+                                setTimeout(() => window.pywebview.api.set_speaking(false), 500);
+                            }
+                        }
+                    }).catch(e => console.error("[HUD] Audio Queue Error:", e));
                     break;
                 case "done":
                     clearTimeout(watchdog);

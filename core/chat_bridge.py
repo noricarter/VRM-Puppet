@@ -103,6 +103,50 @@ def clean_text_for_speech(text):
     return text
 
 
+def _clean_kg_token(text, max_len=80):
+    """Normalize noisy LLM token strings before KG validation."""
+    if text is None:
+        return ""
+    out = str(text).strip().strip('"').strip("'")
+    out = out.replace('*', '')
+    out = re.sub(r'\s+', ' ', out).strip()
+    if len(out) > max_len:
+        out = out[:max_len].rstrip()
+    return out
+
+
+def _is_valid_kg_name(name):
+    """Named entities should be concise noun-like labels, not full sentences."""
+    if not name:
+        return False
+    if len(name) < 2 or len(name) > 80:
+        return False
+    if name.endswith(('.', '?', '!', ':', ';')):
+        return False
+    # Block obvious sentence-like fragments.
+    lowered = name.lower()
+    bad_starts = (
+        "i ", "i'm ", "im ", "my ", "we ", "we're ", "you ", "the ", "this ", "that "
+    )
+    if lowered.startswith(bad_starts):
+        return False
+    if len(name.split()) > 8:
+        return False
+    return True
+
+
+def _is_valid_kg_predicate(predicate):
+    """Predicates should be compact verb labels (no sentence punctuation)."""
+    if not predicate:
+        return False
+    p = predicate.strip().lower()
+    if len(p) < 2 or len(p) > 32:
+        return False
+    if any(ch in p for ch in ".!?,:;"):
+        return False
+    return bool(re.match(r'^[a-z0-9_ -]+$', p))
+
+
 # --- REASONING HELPERS ---
 
 def format_action_library():
@@ -135,6 +179,62 @@ streamer = StreamHandler()
 def idle_monitor():
     pass
 
+def run_memory_heartbeat(actor_id):
+    """Create one non-overlapping page per trigger using dialogue id ranges."""
+    step = 15
+    key_processed = f"heartbeat_last_processed_dialogue_id_{actor_id}"
+
+    try:
+        last_processed_id = int(db_manager.get_reality(key_processed, "0") or 0)
+    except Exception:
+        last_processed_id = 0
+
+    max_id = db_manager.get_max_dialogue_id(actor_id)
+    if max_id <= last_processed_id:
+        return
+
+    chunk = db_manager.get_dialogue_after_id(actor_id, last_processed_id, limit=step)
+    if len(chunk) < step:
+        return
+
+    start_id = int(chunk[0]['id'])
+    end_id = int(chunk[-1]['id'])
+    start_t = chunk[0].get('timestamp')
+    end_t = chunk[-1].get('timestamp')
+
+    print(f"--- [Heartbeat: Page] Triggering extraction for {actor_id} over msg_id_{start_id}:{end_id} ---")
+    streamer.push("system_warn", {"text": "📝 Writing a new page in the journal..."})
+
+    ok = brain_tool.extract_concepts(
+        actor_id,
+        f"msg_id_{start_id}:{end_id}",
+        dialogue_rows=chunk,
+        start_t=start_t,
+        end_t=end_t
+    )
+    if not ok:
+        print(f"--- [Heartbeat WARN] Page extraction fallback failed for msg_id_{start_id}:{end_id} ---")
+        return
+
+    # Advance marker only after successful write.
+    db_manager.set_reality(key_processed, str(end_id))
+
+    # Refinement tiers depend on actual persisted page/chapter counts.
+    try:
+        page_count = db_manager.get_block_count(actor_id, block_type='page')
+        if page_count > 0 and page_count % 5 == 0:
+            print(f"--- [Heartbeat: Chapter] Refining 5 pages into a chapter for {actor_id} ---")
+            streamer.push("system_warn", {"text": "📖 Consolidating pages into a new Chapter..."})
+            chapter_text = brain_tool.refine_memory(actor_id, target_type='chapter')
+            if chapter_text:
+                chapter_count = db_manager.get_block_count(actor_id, block_type='chapter')
+                if chapter_count > 0 and chapter_count % 5 == 0:
+                    print(f"--- [Heartbeat: Book] Consolidating 5 chapters into a book for {actor_id} ---")
+                    streamer.push("system_warn", {"text": "📚 Archiving chapters into a new Book of Life..."})
+                    brain_tool.refine_memory(actor_id, target_type='book')
+    except Exception as re:
+        print(f"Memory Refinement Error: {re}")
+
 def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=None, active_context=None, extra_data=None):
     """Background thread function to generate text and stream audio chunks."""
     global _last_activity_time
@@ -151,8 +251,10 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
     # We find the 'trigger message' which is usually the last one
     trigger_message = messages[-1]['content'] if messages else ""
     
-    # We remove any previous system messages to avoid clutter
-    clean_history = [m for m in messages if m['role'] != 'system']
+    # Keep only Ollama-compatible dialogue turns.
+    # Internal roles like "memory" are stored for persistence but should not be
+    # forwarded as chat roles to the model.
+    clean_history = [m for m in messages if m.get('role') in ('user', 'assistant')]
     
     lib_str = format_action_library()
     known_contexts = db_manager.kg_get_contexts(actor_id)
@@ -198,6 +300,8 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
             "temperature": 0.85,       # Slight reduction keeps her coherent; default is 0.8–1.0
             "repeat_penalty": 1.15,    # Penalises repeating tokens/phrases; 1.0 = off, >1 = stronger
             "repeat_last_n": 128,      # How many tokens back to scan for repetition
+            "num_predict": 1024,       # Prevent long reasoning/JSON blocks from being truncated
+            "num_ctx": 4096            # Support deep memory retrieval Windows
         }
     }
     
@@ -256,6 +360,7 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
         response_mode = "speak"
         memory_note = ""
         search_query = None
+        memory_query = None
         ai_full_text = ""
 
         try:
@@ -300,7 +405,12 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
             memory_note = memory_note.strip() if memory_note else ''
             
             search_query = reasoning_data.get('search_query')
-            search_query = search_query.strip() if search_query else None
+            if search_query and isinstance(search_query, str):
+                search_query = search_query.strip()
+                
+            memory_query = reasoning_data.get('memory_query')
+            if memory_query and isinstance(memory_query, str):
+                memory_query = memory_query.strip()
             
             # --- MANDATORY ACKNOWLEDGEMENT ---
             # If we are searching but have no response text, synthesize one
@@ -338,8 +448,10 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
             print(f"Processing Error: {e}")
             ai_full_text = "Internal error during reasoning extraction."
 
+        spoken_text = clean_text_for_speech(ai_full_text) if ai_full_text else ""
+
         print(f"Assistant Thought: {thought}")
-        print(f"Assistant (Dialogue Only): {ai_full_text}")
+        print(f"Assistant (Dialogue Only): {spoken_text}")
         print(f"Assistant Response Mode: {response_mode}")
 
         # --- RESPONSE MODE ROUTING ---
@@ -347,8 +459,8 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
         will_absorb = response_mode in ('absorb', 'speak_and_absorb')
 
         # A. Store spoken dialogue in history (only when actually speaking)
-        if will_speak and ai_full_text.strip():
-            db_manager.log_dialogue(actor_id, "assistant", ai_full_text)
+        if will_speak and spoken_text.strip():
+            db_manager.log_dialogue(actor_id, "assistant", spoken_text)
 
         # B. Store memory note + handle KG self-write (absorb paths)
         if will_absorb and memory_note:
@@ -356,16 +468,33 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
             db_manager.log_dialogue(actor_id, "memory", memory_note)
             streamer.push("thinking", {"note": memory_note})
 
-        # C. KG Self-Write (optional, only when absorbing)
-        if will_absorb:
-            kg_entry = reasoning_data.get('kg_entry')
-            if kg_entry and isinstance(kg_entry, dict):
-                subj   = kg_entry.get('subject', '').strip()
-                stype  = kg_entry.get('subject_type', '').strip()
-                src    = kg_entry.get('source_context', '').strip()
-                desc   = kg_entry.get('description', '').strip()
-                rel    = kg_entry.get('relation', '').strip()
-                obj    = kg_entry.get('object', '').strip()
+        # --- Memory Heartbeat (Hierarchical Life Story) ---
+        try:
+            msg_count = db_manager.get_dialogue_count(actor_id)
+            if msg_count > 0:
+                run_memory_heartbeat(actor_id)
+        except Exception as heartbreaker:
+            print(f"Memory Heartbeat Error: {heartbreaker}")
+
+        # C. KG Self-Write 
+        raw_kg = reasoning_data.get('kg_entries') or reasoning_data.get('kg_entry')
+        if raw_kg:
+            kg_list = raw_kg if isinstance(raw_kg, list) else [raw_kg]
+            for kg_entry in kg_list:
+                if not isinstance(kg_entry, dict):
+                    continue
+                
+                subj   = _clean_kg_token(kg_entry.get('subject'))
+                stype  = _clean_kg_token(kg_entry.get('subject_type'), max_len=40)
+                src    = _clean_kg_token(kg_entry.get('source_context'), max_len=64)
+                desc   = _clean_kg_token(kg_entry.get('description'), max_len=240)
+                rel    = _clean_kg_token(kg_entry.get('relation'), max_len=32)
+                obj    = _clean_kg_token(kg_entry.get('object'))
+
+                # Fix: Skip if predicate (relation) is missing or nonsensical
+                if not _is_valid_kg_predicate(rel):
+                    print(f"--- [KG SKIP] Skipping malformed relation: '{rel}' ---")
+                    continue
 
                 # Validate required fields
                 missing = [f for f, v in [('subject', subj), ('subject_type', stype), ('source_context', src)] if not v]
@@ -374,6 +503,13 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                     print(f"--- [KG WARN] {warn} ---")
                     streamer.push("system_warn", {"text": warn, "entry": kg_entry})
                 else:
+                    if not _is_valid_kg_name(subj):
+                        print(f"--- [KG SKIP] Subject failed quality gate: '{subj}' ---")
+                        continue
+                    if obj and not _is_valid_kg_name(obj):
+                        print(f"--- [KG SKIP] Object failed quality gate: '{obj}' ---")
+                        continue
+
                     # Validate source context:
                     # Accept: always-valid builtins, existing DB contexts, OR any new
                     # well-formed "type:Title" string (allows creating new contexts on the fly).
@@ -397,9 +533,19 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                                 source=src, confidence=0.85
                             )
                             if rel and obj:
+                                # Resolve object to an ID so relations link properly in both directions
+                                existing_obj = db_manager.kg_get_subject(actor_id, obj)
+                                if existing_obj:
+                                    oid = existing_obj['subject_id']
+                                else:
+                                    oid = db_manager.kg_add_subject(
+                                        actor_id, obj, "Entity",
+                                        description=None,
+                                        source=src, confidence=0.85
+                                    )
                                 db_manager.kg_add_relation(
                                     actor_id, sid, rel,
-                                    object_literal=obj, source=src
+                                    object_id=oid, object_literal=obj, source=src
                                 )
                             confirm = f"{subj} [{stype}, ctx: {src}]"
                             if rel and obj:
@@ -412,9 +558,9 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                             streamer.push("system_warn", {"text": warn})
 
         # C. TTS pipeline — only when speaking
-        if will_speak and ai_full_text.strip():
+        if will_speak and spoken_text.strip():
             import re
-            raw_paragraphs = re.split(r'\n+', ai_full_text)
+            raw_paragraphs = re.split(r'\n+', spoken_text)
             
             for i, raw_para in enumerate(raw_paragraphs):
                 clean_para = clean_text_for_speech(raw_para)
@@ -440,12 +586,12 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                 streamer.push("audio", {
                     "audioUrl": f"./temp/{audio_id}.wav",
                     "visemeUrl": f"./temp/{audio_id}_visemes.json",
-                    "text": raw_para,
+                    "text": clean_para,
                     "stats": {"energy": new_energy}
                 })
 
         # 4. Wait to Finish if Searching
-        if not search_query:
+        if not search_query and not memory_query:
             streamer.push("done", {})
             print("--- Stream Complete ---")
         
@@ -475,6 +621,33 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                 streamer.push("system_warn", {"text": f"🕳️ Research Failed: {str(se)}"})
                 streamer.push("done", {})
                 print("--- Stream Complete (Search Failed) ---")
+
+        # 6. Execute Memory Query (if requested)
+        elif memory_query:
+            print(f"--- Triggering Memory Research: {memory_query} ---")
+            streamer.push("system_warn", {"text": f"🧠 Recalling: {memory_query}"})
+            try:
+                kg_context = db_manager.kg_retrieve_context(actor_id, [memory_query], active_context=active_context if 'active_context' in locals() else None)
+                if kg_context:
+                    memory_msg = f"[MEMORY_RESULT] Memory query: '{memory_query}'\nFindings:\n{kg_context}"
+                else:
+                    memory_msg = f"[MEMORY_RESULT] Memory query: '{memory_query}'\nFindings:\nNo information found in memory for '{memory_query}'."
+                
+                print(f"--- [Memory] Triggering follow-up for: {memory_query} ---")
+                followup_messages = messages + [{"role": "assistant", "content": json.dumps(reasoning_data)}, {"role": "user", "content": memory_msg}]
+                chat_queue.put({
+                    "messages": followup_messages,
+                    "actor_id": actor_id,
+                    "model": requested_model,
+                    "voice_desc": voice_desc,
+                    "images": images,
+                    "extra_data": extra_data
+                })
+            except Exception as me:
+                print(f"Memory Research Error: {me}")
+                streamer.push("system_warn", {"text": f"🕳️ Memory Recall Failed: {str(me)}"})
+                streamer.push("done", {})
+                print("--- Stream Complete (Memory Failed) ---")
         
     except Exception as e:
         print(f"Stream Error: {e}")
@@ -522,6 +695,23 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
                 })
             self._set_headers()
             self.wfile.write(json.dumps({"tabs": list(tabs_map.values())}).encode('utf-8'))
+
+        elif self.path.startswith('/get_interests'):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            aid = (qs.get('actor_id') or [''])[0] or get_default_actor_id()
+            interests = db_manager.get_actor_interests(aid)
+            self._set_headers()
+            self.wfile.write(json.dumps({'interests': interests}).encode('utf-8'))
+
+        elif self.path.startswith('/get_memory_blocks'):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            aid = (qs.get('actor_id') or [''])[0] or get_default_actor_id()
+            limit = int((qs.get('limit') or ['15'])[0])
+            btype = (qs.get('type') or ['page'])[0]
+            blocks = db_manager.get_memory_blocks(aid, limit=limit, block_type=btype)
+            self._set_headers()
+            self.wfile.write(json.dumps({'blocks': blocks}).encode('utf-8'))
+
         elif self.path == '/get_models':
             try:
                 req = urllib.request.Request("http://localhost:11434/api/tags")
@@ -551,10 +741,10 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
                         import queue
                         msg = streamer.get(timeout=5)
                     except queue.Empty:
-                        # Send an SSE comment as a keep-alive ping every 5 seconds
-                        # This prevents the frontend EventSource from timeout disconnects 
-                        # during very long TTS generation pauses.
-                        self.wfile.write(b": keep-alive\n\n")
+                        # Send an SSE event instead of a comment, so the frontend onmessage triggers and resets the watchdog
+                        ping_msg = {"type": "ping", "data": "keep-alive"}
+                        event_data = f"data: {json.dumps(ping_msg)}\n\n"
+                        self.wfile.write(event_data.encode('utf-8'))
                         self.wfile.flush()
                         continue
                         
@@ -627,7 +817,7 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
             data = json.loads(post_data.decode('utf-8'))
             
             user_message = data.get('message', '')
-            actor_id = data.get('actor_id', 'Jane_Doe')
+            actor_id = data.get('actor_id') or get_default_actor_id()
             
             # --- REGION 2: Fetch Persistent Traits ---
             persona = data.get('system')
@@ -684,7 +874,7 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
-            actor_id = data.get('actor_id', 'Jane_Doe')
+            actor_id = data.get('actor_id') or get_default_actor_id()
             db_manager.reset_recent_history(actor_id)
             self._set_headers()
             self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
@@ -693,7 +883,7 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
-            actor_id = data.get('actor_id', 'Jane_Doe')
+            actor_id = data.get('actor_id') or get_default_actor_id()
             trait = data.get('trait')
             value = data.get('value')
             if trait and value:
@@ -706,11 +896,11 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
 
         elif self.path == '/get_traits':
             content_length = int(self.headers.get('Content-Length', 0))
-            actor_id = 'Jane_Doe'
+            actor_id = get_default_actor_id()
             if content_length > 0:
                 post_data = self.rfile.read(content_length)
                 data = json.loads(post_data.decode('utf-8'))
-                actor_id = data.get('actor_id', 'Jane_Doe')
+                actor_id = data.get('actor_id') or get_default_actor_id()
             actor = db_manager.get_actor(actor_id)
             traits = actor['manifest_data'] if actor else {}
             self._set_headers()

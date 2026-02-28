@@ -74,6 +74,15 @@ function setStatus(msg) {
   if (sceneStatus) sceneStatus.textContent = msg;
 }
 
+function getActiveActorId() {
+  return (
+    state.loadedCharacterId ||
+    localStorage.getItem("active_actor_id") ||
+    manifest.characters?.[0]?.id ||
+    "Unknown_Actor"
+  );
+}
+
 function getTab(tabId) {
   return uiTabs.find((t) => t.id === tabId) || null;
 }
@@ -486,7 +495,7 @@ function renderAnimationsTab() {
 // ---------------------------
 
 async function syncTraits() {
-  const actorId = state.loadedCharacterId || "Jane_Doe";
+  const actorId = getActiveActorId();
   try {
     const res = await fetch("http://localhost:8001/get_traits", {
       method: "POST",
@@ -509,7 +518,7 @@ async function fetchModels() {
 }
 
 async function saveTrait(trait, value) {
-  const actorId = state.loadedCharacterId || "Jane_Doe";
+  const actorId = getActiveActorId();
   try {
     await fetch("http://localhost:8001/update_trait", {
       method: "POST",
@@ -769,7 +778,7 @@ async function renderChatTab() {
     if (!confirm("Wipe her memory? This cannot be undone.")) return;
     await fetch("http://localhost:8001/reset_memory", {
       method: "POST",
-      body: JSON.stringify({ actor_id: state.loadedCharacterId || "Jane_Doe" })
+      body: JSON.stringify({ actor_id: getActiveActorId() })
     });
     alert("Memory flatlined. 🌑");
   };
@@ -834,7 +843,7 @@ async function renderChatTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
-          actor_id: state.loadedCharacterId || "Jane_Doe",
+          actor_id: getActiveActorId(),
           model: modelSelect.value
         })
       });
@@ -1153,6 +1162,10 @@ async function loadSelectedCharacter(characterId) {
     state.loadedCharacterId = entry.id;
     state.characterLoaded = true;
     if (characterSelect) characterSelect.value = entry.id;
+
+    // --- Persist for Mind Map ---
+    localStorage.setItem('active_actor_id', entry.id);
+    document.getElementById('btn-mind-map').style.display = 'inline-flex';
 
     // Mount persona editor in left panel
     const editorMount = document.getElementById('persona-editor-mount');

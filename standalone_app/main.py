@@ -38,7 +38,7 @@ CAPTURE_MONITOR = ('DP-1', 1920, 0, 1920, 1080)  # Primary monitor (right screen
 # --- WHISPER STT CONFIG ---
 # Model sizes: tiny, base, small, medium, large-v2, large-v3
 # large-v3 = best quality; medium = good balance of speed/accuracy
-WHISPER_MODEL_SIZE = 'large-v3'
+WHISPER_MODEL_SIZE = 'medium'
 # int8_float16 = ~3 GB VRAM (recommended when sharing GPU with TTS + LLM)
 # float16      = ~6.5 GB VRAM (full precision, use only if GPU has 16+ free GB)
 WHISPER_COMPUTE_TYPE = 'int8_float16'
@@ -268,7 +268,21 @@ class HUDAPI:
         print("[HUD] Listening...")
         r = sr.Recognizer()
         r.pause_threshold = 1.5
-        with sr.Microphone() as source:
+
+        # Wait for ALSA to discover the custom 'ears' bridge
+        target_index = None
+        import pyaudio
+        p = pyaudio.PyAudio()
+        try:
+            for i in range(p.get_device_count()):
+                info = p.get_device_info_by_index(i)
+                if 'ears' in info.get('name', '').lower():
+                    target_index = i
+                    break
+        finally:
+            p.terminate()
+
+        with sr.Microphone(device_index=target_index) as source:
             r.adjust_for_ambient_noise(source, duration=0.5)
             try:
                 audio = r.listen(source, timeout=5, phrase_time_limit=15)
@@ -307,8 +321,20 @@ class HUDAPI:
         r.dynamic_energy_threshold = True
         r.pause_threshold = 1.5  # Seconds of silence before considering speech done
         
+        target_index = None
+        import pyaudio
+        p = pyaudio.PyAudio()
         try:
-            with sr.Microphone() as source:
+            for i in range(p.get_device_count()):
+                info = p.get_device_info_by_index(i)
+                if 'ears' in info.get('name', '').lower():
+                    target_index = i
+                    break
+        finally:
+            p.terminate()
+
+        try:
+            with sr.Microphone(device_index=target_index) as source:
                 print("[HUD][HandsFree] Calibrating for ambient noise...")
                 r.adjust_for_ambient_noise(source, duration=1)
                 print("[HUD][HandsFree] Listening for YOU...")
@@ -402,22 +428,18 @@ class HUDAPI:
         r = sr.Recognizer()
         r.pause_threshold = 0.8
         
-        # Try to find a monitor/loopback device index
         monitor_index = None
         import pyaudio
         p = pyaudio.PyAudio()
         try:
-            # First try a smart hunt for common monitor strings
             for i in range(p.get_device_count()):
                 info = p.get_device_info_by_index(i)
-                name = info.get('name', '').lower()
-                if 'monitor' in name or 'loopback' in name or 'virm_loop' in name:
+                if 'ears' in info.get('name', '').lower():
                     monitor_index = i
-                    print(f"[HUD][Observer] FOUND NATIVE MONITOR: {info.get('name')} (id {i})")
+                    print(f"[HUD][Observer] ALSA Bridge Active: {info.get('name')} (id {i})")
                     break
             
             if monitor_index is None:
-                # Fallback: Find anything named 'pulse' or 'default' with inputs
                 for i in range(p.get_device_count()):
                     info = p.get_device_info_by_index(i)
                     if info.get('maxInputChannels') > 0 and ('pulse' in info.get('name').lower() or 'default' in info.get('name').lower()):
@@ -534,15 +556,13 @@ class HUDAPI:
         r.dynamic_energy_threshold = True
 
         monitor_index = None
-        import pyaudio
-        import math
-        p = pyaudio.PyAudio()
         monitor_name = "Unknown"
+        import pyaudio
+        p = pyaudio.PyAudio()
         try:
             for i in range(p.get_device_count()):
                 info = p.get_device_info_by_index(i)
-                name = info.get('name', '').lower()
-                if 'monitor' in name or 'loopback' in name or 'virm_loop' in name:
+                if 'ears' in info.get('name', '').lower():
                     monitor_index = i
                     monitor_name = info.get('name')
                     break

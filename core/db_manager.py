@@ -130,10 +130,23 @@ def init_db():
         CREATE TABLE IF NOT EXISTS memory_blocks (
             block_id INTEGER PRIMARY KEY AUTOINCREMENT,
             actor_id TEXT,
+            block_type TEXT DEFAULT 'page', -- 'page'|'chapter'|'book'
             content TEXT, -- Human/LLM-readable summary
             concepts TEXT, -- JSON list of extracted tags/ideas
             source_range TEXT, -- e.g. "msg_id_start:msg_id_end"
+            start_time TIMESTAMP,
+            end_time TIMESTAMP,
+            parent_block_id INTEGER,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Bridge between narrative and facts
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS kg_memory_links (
+            subject_id INTEGER REFERENCES kg_subjects(subject_id),
+            block_id INTEGER REFERENCES memory_blocks(block_id),
+            PRIMARY KEY (subject_id, block_id)
         )
     ''')
 
@@ -426,7 +439,7 @@ def get_recent_history(actor_id, limit=10):
     cursor.execute('''
         SELECT role, content FROM memory_dialogue 
         WHERE actor_id = ? 
-        ORDER BY timestamp DESC LIMIT ?
+        ORDER BY id DESC LIMIT ?
     ''', (actor_id, limit))
     rows = cursor.fetchall()
     conn.close()
@@ -439,54 +452,153 @@ def reset_recent_history(actor_id):
     cursor.execute('DELETE FROM memory_dialogue WHERE actor_id = ?', (actor_id,))
     # 2. Clear extracted memory blocks
     cursor.execute('DELETE FROM memory_blocks WHERE actor_id = ?', (actor_id,))
+    # 3. Clear stats log
+    cursor.execute('DELETE FROM memory_stats_log WHERE actor_id = ?', (actor_id,))
+    # 4. Clear memory links
+    cursor.execute('DELETE FROM kg_memory_links WHERE block_id NOT IN (SELECT block_id FROM memory_blocks)')
+    
+    # 5. Clear Reality State (Interests, Context, etc.)
+    cursor.execute('DELETE FROM reality_state WHERE key LIKE ?', (f'%{actor_id}%',))
+    
+    # 6. Reset Actor Stats (Energy/Stamina)
+    cursor.execute('UPDATE reality_actor_stats SET energy = 1.0, stamina = 1.0 WHERE actor_id = ?', (actor_id,))
+
     conn.commit()
     conn.close()
 
-    # 3. Reset background memory trait (calls its own get_connection)
+    # 7. Clear Knowledge Graph (Opens its own connection)
+    reset_knowledge_graph(actor_id)
+
+    # 8. Reset background memory trait (Opens its own connection)
     update_actor_trait(actor_id, "background_memory", "")
-    print(f"Memory reset for {actor_id}")
+    
+    print(f"Full memory, KG, and Reality reset for {actor_id}")
 
-def log_stats(actor_id, stamina, energy, mood):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO memory_stats_log (actor_id, stamina, energy, mood)
-        VALUES (?, ?, ?, ?)
-    ''', (actor_id, float(stamina), float(energy), mood))
-    conn.commit()
-    conn.close()
-
-# --- Memory Blocks ---
-
-def add_memory_block(actor_id, content, concepts, source_range):
+def reset_knowledge_graph(actor_id):
+    """Wipes all semantic facts (subjects, relations, hierarchy) for an actor."""
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Robust stringification for SQLite
-    content_str = json.dumps(content) if not isinstance(content, str) else content
-    concepts_json = json.dumps(concepts) if not isinstance(concepts, str) else concepts
+    # Get all subject IDs for this actor to clean up child tables
+    cursor.execute('SELECT subject_id FROM kg_subjects WHERE actor_id = ?', (actor_id,))
+    sids = [r[0] for r in cursor.fetchall()]
     
-    cursor.execute('''
-        INSERT INTO memory_blocks (actor_id, content, concepts, source_range)
-        VALUES (?, ?, ?, ?)
-    ''', (str(actor_id), content_str, concepts_json, str(source_range)))
+    if sids:
+        placeholders = ', '.join(['?'] * len(sids))
+        # Clear Relations
+        cursor.execute(f'DELETE FROM kg_relations WHERE actor_id = ?', (actor_id,))
+        # Clear Hierarchy
+        cursor.execute(f'DELETE FROM kg_hierarchy WHERE child_id IN ({placeholders})', sids)
+        cursor.execute(f'DELETE FROM kg_hierarchy WHERE parent_id IN ({placeholders})', sids)
+        # Clear Memory Links
+        cursor.execute(f'DELETE FROM kg_memory_links WHERE subject_id IN ({placeholders})', sids)
+        # Clear Subjects
+        cursor.execute('DELETE FROM kg_subjects WHERE actor_id = ?', (actor_id,))
+
     conn.commit()
     conn.close()
+    print(f"Knowledge Graph reset for {actor_id}")
 
-def get_memory_blocks(actor_id, limit=5):
+def get_dialogue_count(actor_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM memory_dialogue WHERE actor_id = ?', (actor_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+def get_max_dialogue_id(actor_id):
+    """Return latest dialogue row id for an actor, or 0 if none."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT MAX(id) FROM memory_dialogue WHERE actor_id = ?', (actor_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return int(row[0] or 0)
+
+def get_dialogue_after_id(actor_id, after_id, limit=15):
+    """Return dialogue rows strictly newer than after_id, ascending by id."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT * FROM memory_blocks 
-        WHERE actor_id = ? 
-        ORDER BY timestamp DESC LIMIT ?
-    ''', (actor_id, limit))
+        SELECT id, role, content, timestamp
+        FROM memory_dialogue
+        WHERE actor_id = ? AND id > ?
+        ORDER BY id ASC
+        LIMIT ?
+    ''', (actor_id, int(after_id), int(limit)))
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
+def add_memory_block(actor_id, content, concepts, source_range, 
+                     block_type='page', start_time=None, end_time=None, parent_block_id=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+    concepts_json = json.dumps(concepts)
+    cursor.execute('''
+        INSERT INTO memory_blocks (actor_id, content, concepts, source_range, block_type, start_time, end_time, parent_block_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (actor_id, content, concepts_json, source_range, block_type, start_time, end_time, parent_block_id))
+    block_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return block_id
+
+def kg_link_memory(subject_id, block_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR IGNORE INTO kg_memory_links (subject_id, block_id) VALUES (?, ?)', (subject_id, block_id))
+    conn.commit()
+    conn.close()
+
+def kg_get_linked_memories(subject_id, limit=10):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT mb.* 
+        FROM memory_blocks mb
+        JOIN kg_memory_links ml ON ml.block_id = mb.block_id
+        WHERE ml.subject_id = ?
+        ORDER BY mb.timestamp DESC LIMIT ?
+    ''', (subject_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_dialogue_timestamp_range(actor_id, limit=15):
+    """Returns (start_time, end_time) for the most recent N dialogue messages."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT MIN(timestamp), MAX(timestamp) 
+        FROM (SELECT timestamp FROM memory_dialogue WHERE actor_id = ? ORDER BY id DESC LIMIT ?)
+    ''', (actor_id, limit))
+    row = cursor.fetchone()
+    conn.close()
+    return (row[0], row[1]) if row else (None, None)
+
+def get_memory_blocks(actor_id, limit=5, block_type='page'):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT * FROM memory_blocks 
+        WHERE actor_id = ? AND block_type = ? 
+        ORDER BY timestamp DESC LIMIT ?
+    ''', (actor_id, block_type, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_block_count(actor_id, block_type='page'):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM memory_blocks WHERE actor_id = ? AND block_type = ?', (actor_id, block_type))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
 def get_all_concepts(actor_id):
-    """Retrieves all distinct concepts for a character for background refinement."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT concepts FROM memory_blocks WHERE actor_id = ?', (actor_id,))
@@ -497,11 +609,20 @@ def get_all_concepts(actor_id):
     for r in rows:
         try:
             clist = json.loads(r['concepts'])
-            if isinstance(clist, list):
-                all_concepts.update(clist)
+            all_concepts.update(clist)
         except:
             pass
     return list(all_concepts)
+
+def log_stats(actor_id, stamina, energy, mood):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO memory_stats_log (actor_id, stamina, energy, mood)
+        VALUES (?, ?, ?, ?)
+    ''', (actor_id, float(stamina), float(energy), mood))
+    conn.commit()
+    conn.close()
 
 # --- Animation Registry (New) ---
 
@@ -668,18 +789,22 @@ def kg_add_subject(actor_id, canonical_name, subject_type, description=None,
     cursor = conn.cursor()
     aliases_json = json.dumps(aliases) if aliases else None
 
-    # Check if already exists (by canonical_name AND source for this actor)
+    # Check if already exists (by canonical_name for this actor)
+    # We ignore 'source' for uniqueness to prevent identity fragmentation.
     cursor.execute(
-        'SELECT subject_id FROM kg_subjects WHERE actor_id = ? AND canonical_name = ? AND source = ?',
-        (actor_id, canonical_name, source)
+        'SELECT subject_id, description, confidence FROM kg_subjects WHERE actor_id = ? AND canonical_name = ?',
+        (actor_id, canonical_name)
     )
     existing = cursor.fetchone()
 
     if existing:
+        # Update if the new info is more descriptive or has higher confidence
+        new_desc = description if description else existing['description']
+        new_conf = max(confidence, existing['confidence'])
         cursor.execute('''
             UPDATE kg_subjects SET description=?, confidence=?, last_updated=CURRENT_TIMESTAMP
             WHERE subject_id=?
-        ''', (description, confidence, existing['subject_id']))
+        ''', (new_desc, new_conf, existing['subject_id']))
         subject_id = existing['subject_id']
     else:
         cursor.execute('''
@@ -776,10 +901,28 @@ def kg_add_relation(actor_id, subject_id, predicate, object_id=None,
                     object_literal=None, confidence=1.0, source='manual'):
     conn = get_connection()
     cursor = conn.cursor()
+    
+    # Check if this exact triple already exists
+    # Uniqueness is now (actor_id, subject_id, predicate, object)
+    # This allows a subject to have multiple distinct objects for the same predicate (e.g. likes: Apples, likes: Oranges)
     cursor.execute('''
-        INSERT INTO kg_relations (actor_id, subject_id, predicate, object_id, object_literal, confidence, source)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (actor_id, subject_id, predicate, object_id, object_literal, confidence, source))
+        SELECT relation_id FROM kg_relations 
+        WHERE actor_id = ? AND subject_id = ? AND predicate = ? AND (object_id = ? OR object_literal = ?)
+    ''', (actor_id, subject_id, predicate, object_id, object_literal))
+    existing = cursor.fetchone()
+    
+    if existing:
+        cursor.execute('''
+            UPDATE kg_relations 
+            SET confidence=?, source=?, timestamp=CURRENT_TIMESTAMP
+            WHERE relation_id=?
+        ''', (confidence, source, existing['relation_id']))
+    else:
+        cursor.execute('''
+            INSERT INTO kg_relations (actor_id, subject_id, predicate, object_id, object_literal, confidence, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (actor_id, subject_id, predicate, object_id, object_literal, confidence, source))
+        
     conn.commit()
     conn.close()
 
@@ -877,4 +1020,3 @@ def kg_retrieve_context(actor_id, names_mentioned, min_confidence=0.5, max_subje
         return ""
 
     return "WHAT I KNOW:\n" + "\n".join(results)
-

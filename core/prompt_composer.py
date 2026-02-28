@@ -142,11 +142,13 @@ class PromptComposer:
             mood_block = f"--- CURRENT MOOD: {mood['display_name'].upper()} ---\n{mood['behavioral_text']}"
             sections.append(mood_block)
 
-        # ---- Layer 3: Mode Context -----------------------------------------
+        # ---- Layer 3: Mode / Environmental Rules ---------------------------
         mode_id = detect_mode(message)
-        mode = db_manager.get_mode_prompt(actor_id, mode_id)
-        if mode and mode.get('system_text'):
-            mode_block = f"--- CURRENT MODE: {mode['display_name'].upper()} ---\n{mode['system_text']}"
+        mode_prompt = db_manager.get_mode_prompt(actor_id, mode_id)
+
+        if mode_prompt:
+            mode_block = f"--- CURRENT MODE: {mode_prompt['display_name']} ---\n"
+            mode_block += f"{mode_prompt['system_text']}"
             sections.append(mode_block)
 
         # ---- Layer 4: Knowledge Graph Context -----------------------------
@@ -165,7 +167,6 @@ class PromptComposer:
 
         # ---- Layer 5: Universal Performance Rules -------------------------
         # Dynamically adjust rules based on mode
-        mode_id = detect_mode(message)
         speech_rule = "You MUST provide spoken words in the 'response' field." if mode_id == 'user_dialogue' else "Verbal response is OPTIONAL. Use 'absorb' for routine observations."
 
         sections.append(f"""--- STRICT DIALOGUE RULES ---
@@ -177,8 +178,9 @@ class PromptComposer:
 6. If you want to emphasize a word, use UPPERCASE instead of asterisks or italics.
 7. Keep responses short and conversational.
 8. WEB SEARCH TOOL: You HAVE internet access! If the user explicitly asks you to "search", "look up" something, or asks about current real-world events, you MUST set 'search_query' to the search term (e.g. "Tokyo weather"). Otherwise, keep it null.
-9. If searching, you MUST acknowledge it in the 'response' field (e.g. "I'm looking that up right now.").
-10. ANTI-HALLUCINATION: If the user provides a [RESEARCH_RESULT] block and the exact answer is NOT in the text, you MUST admit you couldn't find it. DO NOT invent dates, facts, or schedules.
+9. MEMORY SEARCH TOOL: ONLY use this if you DO NOT know the answer! If you need to recall facts about a specific person, place, or thing that you don't immediately know, set 'memory_query' to their name (e.g. "Nori") to autonomously retrieve their data from your Knowledge Graph before answering. DO NOT query for information you already know or that is visible in WHAT I KNOW.
+10. If searching the web or memory, you MUST acknowledge it in the 'response' field (e.g. "Let me check my memory."). Note: if you search, your current response will be sent immediately, and you will answer their question in the NEXT turn. Do not try to answer the question right now if you are searching.
+11. ANTI-HALLUCINATION: If the user provides a [RESEARCH_RESULT] or [MEMORY_RESULT] block and the exact answer is NOT in the text, you MUST admit you couldn't find it. DO NOT invent dates, facts, or schedules.
 
 IDEAL RESPONSE EXAMPLES (NO ASTERISKS):
 - "It truly is wonderful to see you again. My day feels brighter already."
@@ -194,7 +196,7 @@ THE 'response' FIELD MUST BE CRISP, CLEAN DIALOGUE ONLY. ABSOLUTELY NO ASTERISKS
             if known_contexts:
                 ctx_list = '\n'.join(f'  - {c}' for c in known_contexts)
                 ctx_block = f"""
---- KNOWN KG CONTEXTS (use EXACT spelling when writing kg_entry) ---
+--- KNOWN KG CONTEXTS (use EXACT spelling when writing kg_entries) ---
 {ctx_list}
   - user_dialogue   (always valid — for things learned from direct conversation)
 """
@@ -250,15 +252,17 @@ JSON OUTPUT FORMAT (MANDATORY STRUCTURE):
   "response_mode": "speak | absorb | speak_and_absorb",
   "memory_note": "Knowledge to save.",
   "search_query": "Search term ONLY if explicitly requested, else null",
+  "memory_query": "Name to look up in your Knowledge Graph (e.g. 'Nori'), else null",
+  "kg_entries": [{{"subject": "NamedEntity", "subject_type": "Person/Place/Thing", "source_context": "audiobook:Title", "description": "fact", "relation": "predicate", "object": "NamedEntity"}}] or null,
   "response": "Clean spoken dialogue."
 }}
 
-CRITICAL: Do NOT add extra fields like 'thoughts' or 'UserInterface_Insight'. Use EXACTLY the keys above.
+CRITICAL: Do NOT add extra fields other than what is listed above. Use EXACTLY these keys.
 If response_mode is 'speak', you MUST fill the 'response' field with dialogue.
 
-kg_entry RULES:
-- ONLY include kg_entry when absorbing a NAMED entity (proper noun, specific place, event).
-- OMIT kg_entry entirely (do not include the key at all) for vague references, pronouns, or conversational turns.
+kg_entries RULES:
+- ONLY include objects in kg_entries when you learn a new NAMED entity (proper noun, specific place, event, or identity trait).
+- OMIT kg_entries entirely (do not include the key at all) for vague references, pronouns, or purely conversational turns.
 - source_context MUST exactly match one of the listed KNOWN KG CONTEXTS.
 - If the source is a new audiobook or show not yet listed, create it as: audiobook:Title or show:Title."""
             sections.append(action_block.strip())
