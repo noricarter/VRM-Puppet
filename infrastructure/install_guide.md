@@ -26,6 +26,15 @@ source venv/bin/activate
 pip install -r infrastructure/requirements.txt
 ```
 
+### 3.1.1 One-Command Bootstrap (Recommended)
+```bash
+python3 tools/bootstrap.py --install --model ministral-3:8b
+```
+This will:
+- create/reuse `venv`
+- install Python dependencies
+- verify critical runtime prerequisites (Ollama/model, CUDA, ffmpeg/scrot/rhubarb, core Python modules)
+
 ### 3.2 External Tools Setup
 -   **Rhubarb**: Place the `rhubarb` binary in the `bin/` directory at the project root.
 -   **FFmpeg**: Ensure `ffmpeg` is in your system PATH.

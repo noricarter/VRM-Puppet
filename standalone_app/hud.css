@@ -38,6 +38,42 @@ body {
     /* Character is non-interactive for clicks by default */
 }
 
+/* Mood FX overlays for standalone viewport */
+.emotion-fx-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 2;
+}
+
+.emotion-fx-emoji {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(-9999px, -9999px);
+    font-size: 38px;
+    line-height: 1;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+    opacity: 0;
+    transition: opacity 120ms ease;
+    will-change: transform, opacity;
+}
+
+.emotion-fx-cheek {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(-9999px, -9999px);
+    opacity: 0;
+    transition: opacity 140ms ease;
+    border-radius: 999px;
+    background:
+        radial-gradient(circle at 50% 55%, rgba(255, 115, 140, 0.34) 0%, rgba(255, 115, 140, 0.22) 45%, rgba(255, 115, 140, 0) 78%),
+        repeating-linear-gradient(165deg, rgba(255, 140, 160, 0.22) 0 2px, rgba(255, 140, 160, 0) 2px 6px);
+    will-change: transform, opacity;
+}
+
 #hud-ui {
     position: relative;
     width: 100%;

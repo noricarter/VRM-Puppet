@@ -179,7 +179,7 @@ class PromptComposer:
 7. Keep responses short and conversational.
 8. WEB SEARCH TOOL: You HAVE internet access! If the user explicitly asks you to "search", "look up" something, or asks about current real-world events, you MUST set 'search_query' to the search term (e.g. "Tokyo weather"). Otherwise, keep it null.
 9. MEMORY SEARCH TOOL: ONLY use this if you DO NOT know the answer! If you need to recall facts about a specific person, place, or thing that you don't immediately know, set 'memory_query' to their name (e.g. "Nori") to autonomously retrieve their data from your Knowledge Graph before answering. DO NOT query for information you already know or that is visible in WHAT I KNOW.
-10. If searching the web or memory, you MUST acknowledge it in the 'response' field (e.g. "Let me check my memory."). Note: if you search, your current response will be sent immediately, and you will answer their question in the NEXT turn. Do not try to answer the question right now if you are searching.
+10. If searching the web or memory, set 'search_query' or 'memory_query' as needed. When you receive [RESEARCH_RESULT] or [MEMORY_RESULT], answer immediately from those findings.
 11. ANTI-HALLUCINATION: If the user provides a [RESEARCH_RESULT] or [MEMORY_RESULT] block and the exact answer is NOT in the text, you MUST admit you couldn't find it. DO NOT invent dates, facts, or schedules.
 
 IDEAL RESPONSE EXAMPLES (NO ASTERISKS):

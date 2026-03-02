@@ -14,6 +14,10 @@ let neckNode = null;
 let neckRestQuat = null; // Still good for reset
 
 let viewportEl = null;
+let emotionFxLayerEl = null;
+let emotionFxEmojiEl = null;
+let emotionFxCheekLeftEl = null;
+let emotionFxCheekRightEl = null;
 
 // Root container so we can move character independently of centering offsets
 let characterRoot = null;
@@ -22,6 +26,23 @@ let characterRoot = null;
 let animController = null;
 let faceController = null;
 let lipSyncController = null;
+
+const moodOverlayState = {
+  emoji: { text: "", intensity: 1.0 },
+  face: { kind: "none", intensity: 1.0 },
+  tuning: {
+    cheekSpanX: 0.04,
+    cheekY: 0.02,
+    cheekZ: 0.15,
+    cheekSize: 1.04,
+    cheekOpacity: 0.58,
+  },
+};
+
+const _tmpHeadPos = new THREE.Vector3();
+const _tmpWorld = new THREE.Vector3();
+const _tmpCheekL = new THREE.Vector3();
+const _tmpCheekR = new THREE.Vector3();
 
 // --- Manual Control State ---
 const manualNeckQuat = new THREE.Quaternion(); // Identity by default
@@ -66,6 +87,10 @@ function ensureInit(viewportId = "viewport", options = {}) {
   const { transparent = false } = options;
   viewportEl = document.getElementById(viewportId);
   if (!viewportEl) throw new Error(`#${viewportId} not found`);
+  emotionFxLayerEl = document.getElementById("emotion-fx-layer");
+  emotionFxEmojiEl = document.getElementById("emotion-fx-emoji");
+  emotionFxCheekLeftEl = document.getElementById("emotion-fx-cheek-left");
+  emotionFxCheekRightEl = document.getElementById("emotion-fx-cheek-right");
 
   scene = new THREE.Scene();
   // If transparent, we don't set a background color
@@ -112,6 +137,14 @@ function ensureInit(viewportId = "viewport", options = {}) {
   faceController = createFaceAnimationController({
     getVRM: () => currentVrm
   });
+
+  // Debug hooks for rapid face tuning from devtools.
+  window.__VRM.setFaceMood = (name, intensity = 1.0) => setFaceMood(name, intensity);
+  window.__VRM.setFaceMoodVariationScale = (scale = 1.0) => setFaceMoodVariationScale(scale);
+  window.__VRM.setFaceAutoExpressionsEnabled = (on) => setFaceAutoExpressionsEnabled(on);
+  window.__VRM.setMoodEmojiOverlay = (symbol = "", intensity = 1.0) => setMoodEmojiOverlay(symbol, intensity);
+  window.__VRM.setMoodFaceOverlay = (kind = "none", intensity = 1.0) => setMoodFaceOverlay(kind, intensity);
+  window.__VRM.setMoodOverlayTuning = (tuning = {}) => setMoodOverlayTuning(tuning);
 
   lipSyncController = createLipSyncController({
     getVRM: () => currentVrm
@@ -221,9 +254,13 @@ function ensureInit(viewportId = "viewport", options = {}) {
         currentVrm.lookAt?.update(dt);
       }
 
-      // FORCE MOOD: Apply face morphs AFTER animation/solver to prevent overwrites
-      faceController?.lateUpdate(dt);
+      // Apply mood morphs last; suppress mouth mood morphs while visemes are active.
+      faceController?.lateUpdate(dt, {
+        speaking: lipSyncController?.isPlaying?.() ?? false
+      });
     }
+
+    updateMoodOverlays();
 
     renderer.render(scene, camera);
   };
@@ -598,6 +635,149 @@ function setMorphTarget(targetName, value) {
   return applied;
 }
 
+function setFaceAutoExpressionsEnabled(on) {
+  faceController?.setAutoExpressionsEnabled?.(!!on);
+  return true;
+}
+
+function setFaceMood(name, intensity = 1.0) {
+  faceController?.setMood?.(name, intensity);
+  return true;
+}
+
+function setFaceMoodVariationScale(scale = 1.0) {
+  faceController?.setMoodVariationScale?.(scale);
+  return true;
+}
+
+function projectToViewport(worldPos) {
+  if (!camera || !viewportEl) return null;
+  const p = _tmpWorld.copy(worldPos).project(camera);
+  const visible = p.z > -1 && p.z < 1;
+  const x = (p.x * 0.5 + 0.5) * viewportEl.clientWidth;
+  const y = (-p.y * 0.5 + 0.5) * viewportEl.clientHeight;
+  return { x, y, visible };
+}
+
+function getHeadPosition(out) {
+  if (!currentVrm?.humanoid) return false;
+  const head = currentVrm.humanoid.getNormalizedBoneNode(VRMHumanBoneName.Head);
+  if (!head) return false;
+  head.getWorldPosition(out);
+  return true;
+}
+
+function updateMoodOverlays() {
+  if (!emotionFxLayerEl || !currentVrm) {
+    if (emotionFxEmojiEl) emotionFxEmojiEl.style.opacity = "0";
+    if (emotionFxCheekLeftEl) emotionFxCheekLeftEl.style.opacity = "0";
+    if (emotionFxCheekRightEl) emotionFxCheekRightEl.style.opacity = "0";
+    return;
+  }
+
+  const hasHead = getHeadPosition(_tmpHeadPos);
+  if (!hasHead) {
+    if (emotionFxEmojiEl) emotionFxEmojiEl.style.opacity = "0";
+    if (emotionFxCheekLeftEl) emotionFxCheekLeftEl.style.opacity = "0";
+    if (emotionFxCheekRightEl) emotionFxCheekRightEl.style.opacity = "0";
+    return;
+  }
+
+  if (emotionFxEmojiEl) {
+    const text = moodOverlayState.emoji.text;
+    if (text) {
+      const emojiPos = _tmpHeadPos.clone().add(new THREE.Vector3(0.18, 0.26, 0.0));
+      const p = projectToViewport(emojiPos);
+      if (p?.visible) {
+        const scale = 0.9 + (0.35 * Math.max(0, Math.min(1, moodOverlayState.emoji.intensity)));
+        emotionFxEmojiEl.textContent = text;
+        emotionFxEmojiEl.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) scale(${scale.toFixed(2)})`;
+        emotionFxEmojiEl.style.opacity = String(0.65 + (0.35 * Math.max(0, Math.min(1, moodOverlayState.emoji.intensity))));
+      } else {
+        emotionFxEmojiEl.style.opacity = "0";
+      }
+    } else {
+      emotionFxEmojiEl.style.opacity = "0";
+    }
+  }
+
+  if (emotionFxCheekLeftEl && emotionFxCheekRightEl) {
+    const kind = moodOverlayState.face.kind;
+    if (kind === "embarrassed_lines") {
+      const head = currentVrm.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Head);
+      if (!head) {
+        emotionFxCheekLeftEl.style.opacity = "0";
+        emotionFxCheekRightEl.style.opacity = "0";
+        return;
+      }
+
+      const tuning = moodOverlayState.tuning;
+      // Cheek anchors in head-local space (left/right, slightly down, slightly forward).
+      _tmpCheekL.set(-tuning.cheekSpanX, tuning.cheekY, tuning.cheekZ).applyMatrix4(head.matrixWorld);
+      _tmpCheekR.set(tuning.cheekSpanX, tuning.cheekY, tuning.cheekZ).applyMatrix4(head.matrixWorld);
+
+      const leftP = projectToViewport(_tmpCheekL);
+      const rightP = projectToViewport(_tmpCheekR);
+
+      if (leftP?.visible && rightP?.visible) {
+        const intensity = Math.max(0, Math.min(1, moodOverlayState.face.intensity));
+        const dx = rightP.x - leftP.x;
+        const dy = rightP.y - leftP.y;
+        const cheekSpanPx = Math.hypot(dx, dy);
+
+        // Auto-scale with camera distance; clamp to keep the style readable.
+        const markW = Math.max(12, Math.min(52, cheekSpanPx * 0.42 * tuning.cheekSize));
+        const markH = Math.max(7, Math.min(24, markW * 0.52));
+        const opacity = Math.max(0, Math.min(1, (0.30 + (0.52 * intensity)) * tuning.cheekOpacity));
+
+        emotionFxCheekLeftEl.style.width = `${markW.toFixed(1)}px`;
+        emotionFxCheekLeftEl.style.height = `${markH.toFixed(1)}px`;
+        emotionFxCheekRightEl.style.width = `${markW.toFixed(1)}px`;
+        emotionFxCheekRightEl.style.height = `${markH.toFixed(1)}px`;
+
+        emotionFxCheekLeftEl.style.transform = `translate(${(leftP.x - markW * 0.5).toFixed(1)}px, ${(leftP.y - markH * 0.5).toFixed(1)}px)`;
+        emotionFxCheekRightEl.style.transform = `translate(${(rightP.x - markW * 0.5).toFixed(1)}px, ${(rightP.y - markH * 0.5).toFixed(1)}px)`;
+
+        emotionFxCheekLeftEl.style.opacity = String(opacity);
+        emotionFxCheekRightEl.style.opacity = String(opacity);
+      } else {
+        emotionFxCheekLeftEl.style.opacity = "0";
+        emotionFxCheekRightEl.style.opacity = "0";
+      }
+    } else {
+      emotionFxCheekLeftEl.style.opacity = "0";
+      emotionFxCheekRightEl.style.opacity = "0";
+    }
+  }
+}
+
+function setMoodEmojiOverlay(symbol = "", intensity = 1.0) {
+  moodOverlayState.emoji.text = String(symbol || "");
+  moodOverlayState.emoji.intensity = Math.max(0, Math.min(1, Number(intensity) || 0));
+  return true;
+}
+
+function setMoodFaceOverlay(kind = "none", intensity = 1.0) {
+  moodOverlayState.face.kind = String(kind || "none");
+  moodOverlayState.face.intensity = Math.max(0, Math.min(1, Number(intensity) || 0));
+  return true;
+}
+
+function setMoodOverlayTuning(tuning = {}) {
+  if (!tuning || typeof tuning !== "object") return false;
+  const t = moodOverlayState.tuning;
+  const readNum = (value, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  if ("cheekSpanX" in tuning) t.cheekSpanX = Math.max(0.02, Math.min(0.2, readNum(tuning.cheekSpanX, t.cheekSpanX)));
+  if ("cheekY" in tuning) t.cheekY = Math.max(-0.2, Math.min(0.1, readNum(tuning.cheekY, t.cheekY)));
+  if ("cheekZ" in tuning) t.cheekZ = Math.max(-0.05, Math.min(0.25, readNum(tuning.cheekZ, t.cheekZ)));
+  if ("cheekSize" in tuning) t.cheekSize = Math.max(0.4, Math.min(2.0, readNum(tuning.cheekSize, t.cheekSize)));
+  if ("cheekOpacity" in tuning) t.cheekOpacity = Math.max(0.0, Math.min(2.0, readNum(tuning.cheekOpacity, t.cheekOpacity)));
+  return true;
+}
+
 // ---------------------------
 // ANIMATION (idle clips, etc.)
 // ---------------------------
@@ -670,6 +850,12 @@ export const viewer = {
   setGaze, // New API
   resetPose,
   setMorphTarget,
+  setFaceAutoExpressionsEnabled,
+  setFaceMood,
+  setFaceMoodVariationScale,
+  setMoodEmojiOverlay,
+  setMoodFaceOverlay,
+  setMoodOverlayTuning,
   getRigReport,
   // animations
   setAnimationsEnabled,

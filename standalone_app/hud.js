@@ -18,7 +18,16 @@ const state = {
     pendingMessage: null,   // Queued message to send after current stream finishes
     pendingImage: null,     // Queued image to send after current stream finishes
     activeContext: null,    // Context for observer mode
-    inputMode: 'text'       // 'text' or 'voice'
+    inputMode: 'text',      // 'text' or 'voice'
+    runtimeEmotionUntilMs: 0,
+    stickyPositiveMood: null,
+    overlayTune: {
+        cheekSpanX: 0.04,
+        cheekY: 0.02,
+        cheekZ: 0.15,
+        cheekSize: 1.04,
+        cheekOpacity: 0.58
+    }
 };
 
 // --- DOM Elements ---
@@ -45,6 +54,80 @@ const formFields = {
     faceCamera: document.getElementById("face-camera"),
     observerMode: document.getElementById("observer-mode")
 };
+
+function sanitizeOverlayTune(raw) {
+    const src = (raw && typeof raw === "object") ? raw : {};
+    const asNum = (k, fallback) => {
+        const n = Number(src[k]);
+        return Number.isFinite(n) ? n : fallback;
+    };
+    return {
+        cheekSpanX: Math.max(0.02, Math.min(0.2, asNum("cheekSpanX", state.overlayTune.cheekSpanX))),
+        cheekY: Math.max(-0.2, Math.min(0.1, asNum("cheekY", state.overlayTune.cheekY))),
+        cheekZ: Math.max(-0.05, Math.min(0.25, asNum("cheekZ", state.overlayTune.cheekZ))),
+        cheekSize: Math.max(0.4, Math.min(2.0, asNum("cheekSize", state.overlayTune.cheekSize))),
+        cheekOpacity: Math.max(0.0, Math.min(2.0, asNum("cheekOpacity", state.overlayTune.cheekOpacity)))
+    };
+}
+
+function resolveHudBaseMood(moodIdRaw) {
+    const id = String(moodIdRaw || "").toLowerCase();
+    if (!id) return "neutral";
+    if (id.includes("anger") || id.includes("angry") || id.includes("annoy") || id.includes("mad")) return "negative_anger";
+    if (id.includes("sad") && (id.includes("embarrass") || id.includes("shy") || id.includes("fluster"))) return "negative_sad_embarrassed";
+    if (id.includes("embarrass") || id.includes("shy") || id.includes("fluster")) return "negative_embarrassed";
+    if (id.includes("sad") || id.includes("sorrow") || id.includes("down")) return "negative_sad";
+    if (id.includes("happy") || id.includes("positive") || id.includes("joy")) return "positive";
+    return id;
+}
+
+function resolveHudOverlays(baseMood, intensity = 1.0) {
+    if (baseMood === "negative_anger") {
+        return { emoji: intensity >= 0.75 ? "!!!" : "💢", face: "none" };
+    }
+    if (baseMood === "negative_sad") {
+        return { emoji: "💧", face: "none" };
+    }
+    if (baseMood === "negative_embarrassed") {
+        return { emoji: "", face: "embarrassed_lines" };
+    }
+    if (baseMood === "negative_sad_embarrassed") {
+        return { emoji: "💧", face: "embarrassed_lines" };
+    }
+    return { emoji: "", face: "none" };
+}
+
+function applyHudMoodPresentation(moodId, intensity = 1.0) {
+    const canonical = resolveHudBaseMood(moodId);
+    viewer.setFaceMood(canonical, intensity);
+    const fx = resolveHudOverlays(canonical, intensity);
+    viewer.setMoodEmojiOverlay(fx.emoji, intensity);
+    viewer.setMoodFaceOverlay(fx.face, intensity);
+    viewer.setMoodOverlayTuning(state.overlayTune);
+}
+
+function isNonPositiveOverride(baseMood) {
+    return baseMood === "negative_anger" || baseMood === "negative_sad" || baseMood === "negative_embarrassed" || baseMood === "negative_sad_embarrassed";
+}
+
+async function syncHudMoodFromPersona() {
+    if (state.stickyPositiveMood) {
+        return;
+    }
+    if (Date.now() < (state.runtimeEmotionUntilMs || 0)) {
+        return;
+    }
+    const actorId = formFields.actorId.value || DEFAULT_ACTOR;
+    if (!actorId) return;
+    try {
+        const res = await fetch(`${BRIDGE_URL}/persona/${encodeURIComponent(actorId)}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        applyHudMoodPresentation(data.current_mood || "neutral", 1.0);
+    } catch (e) {
+        console.warn("[HUD] Mood sync failed:", e);
+    }
+}
 
 // --- Initialization ---
 async function initHUD() {
@@ -263,8 +346,12 @@ async function initHUD() {
         formFields.actorId.value = defaultActorId;
         formFields.actorDisplay.textContent = defaultActorId;
         formFields.vrmPath.value = defaultVrm;
+        applyHudMoodPresentation("neutral", 1.0);
         viewer.startRandomIdle();
     }
+
+    // Keep HUD face/overlays synced with current persona mood.
+    setInterval(() => { syncHudMoodFromPersona(); }, 5000);
 }
 
 // --- Position Handling ---
@@ -341,6 +428,7 @@ window.loadCharacterProfile = async (actor) => {
     await refreshModelList();
 
     const manifest = actor.manifest_data || {};
+    state.overlayTune = sanitizeOverlayTune(manifest.mood_overlay_tune || state.overlayTune);
 
     // Fill Form
     const vrmPath = actor.vrm_path ? (actor.vrm_path.startsWith("/") ? actor.vrm_path : "/" + actor.vrm_path) : "";
@@ -371,6 +459,8 @@ window.loadCharacterProfile = async (actor) => {
         if (manifest.pos_x !== undefined) {
             viewer.setScenePosition(manifest.pos_x, manifest.pos_y, manifest.pos_z);
         }
+        viewer.setMoodOverlayTuning(state.overlayTune);
+        await syncHudMoodFromPersona();
 
         viewer.setIdleAnimationPools({
             loopUrls: [
@@ -412,6 +502,7 @@ async function saveCurrentProfile() {
         voice_reference_audio: formFields.voiceRef.value,
         face_camera: formFields.faceCamera.checked,
         observer_role: formFields.observerMode.value,
+        mood_overlay_tune: state.overlayTune,
         pos_x: pos.x,
         pos_y: pos.y,
         pos_z: pos.z
@@ -569,6 +660,31 @@ async function handleCharacterChat(text, imageJson) {
                 case "reasoning":
                     addMindEntry("reasoning", "💭 " + msg.data.thought);
                     break;
+                case "emotion": {
+                    const rawStateId = msg.data?.state || "neutral";
+                    const baseStateId = resolveHudBaseMood(rawStateId);
+                    const intensity = Number(msg.data?.intensity ?? 1.0);
+                    const holdSec = Math.max(0, Number(msg.data?.hold_sec ?? 8));
+                    const safeIntensity = Number.isFinite(intensity) ? intensity : 1.0;
+
+                    // Positive sticks until a real emotional override happens.
+                    if (baseStateId === "positive") {
+                        state.stickyPositiveMood = { state: "positive", intensity: safeIntensity };
+                        state.runtimeEmotionUntilMs = Date.now() + Math.floor(holdSec * 1000);
+                        applyHudMoodPresentation("positive", safeIntensity);
+                        break;
+                    }
+                    if (state.stickyPositiveMood && (baseStateId === "neutral" || !baseStateId)) {
+                        break;
+                    }
+                    if (state.stickyPositiveMood && isNonPositiveOverride(baseStateId)) {
+                        state.stickyPositiveMood = null;
+                    }
+
+                    state.runtimeEmotionUntilMs = Date.now() + Math.floor(holdSec * 1000);
+                    applyHudMoodPresentation(baseStateId, safeIntensity);
+                    break;
+                }
                 case "thinking":
                     // Absorb mode: she processed but didn't speak
                     addChatMessage("thinking", msg.data.note);
@@ -609,11 +725,16 @@ async function handleCharacterChat(text, imageJson) {
                         }
                     }).catch(e => console.error("[HUD] Audio Queue Error:", e));
                     break;
+                case "assistant_text":
+                    // Text-only fallback when TTS backend is unavailable.
+                    addChatMessage("assistant", msg.data.text);
+                    break;
                 case "done":
                     clearTimeout(watchdog);
                     eventSource.close();
                     state.isStreaming = false;
                     _flushPendingMessage();
+                    syncHudMoodFromPersona();
                     state.activeContext = null; // Clear context after sending
                     break;
                 case "error":

@@ -7,6 +7,7 @@ import * as THREE from "three";
  */
 export function createFaceAnimationController(options = {}) {
     const { getVRM } = options;
+    const clamp01 = (n) => Math.max(0, Math.min(1, Number(n) || 0));
 
     let blinkTimer = 0;
     let nextBlinkTime = Math.random() * 3 + 2;
@@ -94,61 +95,95 @@ export function createFaceAnimationController(options = {}) {
         'neutral': {
             morphs: [],
             weights: [],
-            blinkInterval: 4.0,
-            switchChance: 0.1
-        },
-        'content': {
-            // Pleasant neutral (Gentle smile)
-            morphs: ['Fcl_EYE_Joy'],
-            weights: [0.3],
-            blinkInterval: 4.0,
-            switchChance: 0.2
+            ranges: [],
+            blinkInterval: 4.0
         },
         'happy': {
-            // Custom blend to avoid "excessive open mouth" of preset
-            morphs: ['Fcl_BRW_Joy', 'Fcl_EYE_Joy', 'Fcl_MTH_Fun'],
-            weights: [0.4, 0.5, 0.4],
-            blinkInterval: 3.5,
-            switchChance: 0.3
+            // Use MTH_Fun as the happy mouth driver (targeting ~0.5-0.8 at full variation).
+            morphs: ['Fcl_BRW_Joy', 'Fcl_EYE_Joy', 'Fcl_MTH_Fun', 'Fcl_ALL_Joy'],
+            weights: [0.30, 0.36, 0.65, 0.08],
+            ranges: [0.03, 0.04, 0.15, 0.02],
+            blinkInterval: 3.3
         },
-        'relaxed': {
-            // Preset: Relaxed (capped at 0.4)
-            morphs: ['relaxed'],
-            weights: [0.4],
-            blinkInterval: 6.0,
-            switchChance: 0.2
+        // Tuned for shy/embarrassed shape (color blush handled separately).
+        'embarrassed': {
+            morphs: [
+                'Fcl_BRW_Sorrow',
+                'Fcl_BRW_Joy',
+                'Fcl_EYE_Sorrow',
+                'Fcl_EYE_Spread',
+                'Fcl_MTH_Close',
+                'Fcl_MTH_Small',
+                'Fcl_MTH_O',
+                'Fcl_MTH_Down',
+                'Fcl_ALL_Sorrow'
+            ],
+            // Keep lips mostly closed; tiny openness only for subtle uncertainty.
+            weights: [0.34, 0.08, 0.22, 0.10, 0.24, 0.06, 0.02, 0.06, 0.10],
+            // +/- range per morph to prevent frozen face.
+            ranges: [0.04, 0.02, 0.04, 0.03, 0.03, 0.03, 0.01, 0.02, 0.03],
+            blinkInterval: 4.8
         },
-        'focused': {
-            // Preset: Angry (capped at 0.2)
-            // Mapping "focused" mood to "angry" preset for intensity
-            morphs: ['angry'],
-            weights: [0.2],
-            blinkInterval: 2.0,
-            switchChance: 0.2
-        },
-        'fun': {
-            // Keeping component blend
-            morphs: ['Fcl_ALL_Fun', 'Fcl_BRW_Fun', 'Fcl_EYE_Fun', 'Fcl_MTH_Fun'],
-            weights: [0.3, 0.3, 0.3, 0.2],
-            blinkInterval: 3.0,
-            switchChance: 0.2
-        },
+        // Sad base: keep corners pulled down via MTH_Angry as requested.
         'sad': {
-            // Preset: Sad (capped at 0.4)
-            morphs: ['sad'],
-            weights: [0.4],
-            blinkInterval: 5.0,
-            switchChance: 0.15
+            morphs: [
+                'Fcl_BRW_Sorrow',
+                'Fcl_EYE_Sorrow',
+                'Fcl_MTH_Angry',
+                'Fcl_MTH_Large',
+                'Fcl_MTH_Close',
+                'Fcl_ALL_Sorrow'
+            ],
+            weights: [0.32, 0.24, 0.40, 0.40, 0.10, 0.10],
+            ranges: [0.04, 0.04, 0.04, 0.04, 0.02, 0.03],
+            blinkInterval: 5.0
+        },
+        // Based on your mixer payload pass for "anger".
+        'angry': {
+            morphs: [
+                'Fcl_BRW_Angry',
+                'Fcl_BRW_Fun',
+                'Fcl_BRW_Sorrow',
+                'Fcl_EYE_Angry',
+                'Fcl_EYE_Fun',
+                'Fcl_EYE_Sorrow',
+                'Fcl_EYE_Surprised',
+                'Fcl_MTH_Angry',
+                'Fcl_MTH_Large',
+                'Fcl_MTH_Up'
+            ],
+            weights: [0.49, 0.10, 0.18, 0.12, 1.00, 0.80, 0.29, 0.40, 0.41, 0.21],
+            ranges: [0.05, 0.02, 0.03, 0.03, 0.06, 0.06, 0.04, 0.04, 0.04, 0.03],
+            blinkInterval: 2.2
         }
+    };
+
+    // Backward compatibility for any upstream mood labels.
+    const MOOD_ALIASES = {
+        content: 'neutral',
+        relaxed: 'neutral',
+        focused: 'neutral',
+        fun: 'happy',
+        sad: 'embarrassed',
+        positive: 'happy',
+        negative: 'embarrassed',
+        negative_sad: 'sad',
+        negative_embarrassed: 'embarrassed',
+        negative_sad_embarrassed: 'sad',
+        negative_anger: 'angry'
     };
 
     const moodState = {
         current: 'neutral',
-        timer: 0,
-        nextSwitch: 10, // Seconds until next mood check
+        intensity: 1.0,
+        autoExpressionsEnabled: true,
+        variationScale: 1.0,
+        expressionTime: Math.random() * 100.0,
 
         // Morph Blending
         activeMorphs: {}, // { name: { target: 0.4, current: 0.0 } },
+        appliedMorphNames: new Set(),
+        morphDynamics: {}, // { name: { phase, speed } }
 
         // Saccades (previously in microState)
         saccadeTimer: 0,
@@ -187,54 +222,56 @@ export function createFaceAnimationController(options = {}) {
         });
     }
 
-    function updateMicroExpressions(dt, vrm) {
-        if (!vrm.expressionManager) return;
+    function clearAutoMorphs(vrm) {
+        for (const name of moodState.appliedMorphNames) {
+            applyMorphTarget(vrm, name, 0.0);
+        }
+        moodState.appliedMorphNames.clear();
+        moodState.activeMorphs = {};
+    }
 
-        // 1. Mood Switching Logic
-        moodState.timer += dt;
-        if (moodState.timer >= moodState.nextSwitch) {
-            moodState.timer = 0;
-            moodState.nextSwitch = Math.random() * 20 + 10; // 10-30s persistence
+    function isMouthMorph(name) {
+        if (typeof name !== "string") return false;
+        return name.startsWith("Fcl_MTH_");
+    }
 
-            // Pick new mood?
-            const keys = Object.keys(MOODS).filter(k => k !== 'surprised');
-            const nextMood = keys[Math.floor(Math.random() * keys.length)];
+    function updateMicroExpressions(dt, vrm, runtime = {}) {
+        if (!moodState.autoExpressionsEnabled) return;
+        const speaking = !!runtime.speaking;
+        moodState.expressionTime += dt;
 
-            // Bias towards remaining in current mood or neutral
-            if (Math.random() < 0.4) {
-                moodState.current = 'neutral';
-            } else {
-                moodState.current = nextMood;
-            }
+        const config = MOODS[moodState.current] || MOODS['neutral'];
+        state.currentMood = moodState.current;
 
-            state.currentMood = moodState.current; // Expose for debug
-
-            // Set targets for this mood
-            const config = MOODS[moodState.current];
-
-            // Reset old targets not in new mood
-            for (const k of Object.keys(moodState.activeMorphs)) {
-                if (!config.morphs.includes(k)) {
-                    moodState.activeMorphs[k].target = 0.0;
-                }
-            }
-
-            // Set new targets
-            config.morphs.forEach((m, i) => {
-                // Random intensity variation per cycle
-                const weight = config.weights[i] || 0.2;
-                const variation = (Math.random() * 0.2) - 0.1;
-                const finalWeight = Math.max(0, weight + variation);
-
-                if (!moodState.activeMorphs[m]) {
-                    moodState.activeMorphs[m] = { current: 0.0, target: finalWeight };
-                } else {
-                    moodState.activeMorphs[m].target = finalWeight;
-                }
-            });
+        // Keep only morphs needed for the current mood.
+        const desired = new Set(config.morphs);
+        for (const name of Object.keys(moodState.activeMorphs)) {
+            if (!desired.has(name)) moodState.activeMorphs[name].target = 0.0;
         }
 
-        // 2. Animate Morphs (Lerp)
+        // Set current mood targets.
+        config.morphs.forEach((name, i) => {
+            const baseWeight = clamp01(config.weights[i] || 0.0) * clamp01(moodState.intensity);
+            const range = clamp01(config.ranges?.[i] || 0.0) * clamp01(moodState.variationScale);
+            if (!moodState.morphDynamics[name]) {
+                moodState.morphDynamics[name] = {
+                    phase: Math.random() * Math.PI * 2,
+                    speed: 0.35 + (Math.random() * 0.55)
+                };
+            }
+            const dyn = moodState.morphDynamics[name];
+            const drift = range > 0 ? Math.sin((moodState.expressionTime * dyn.speed) + dyn.phase) * range : 0.0;
+            const dynamicWeight = clamp01(baseWeight + drift);
+            const targetWeight = speaking && isMouthMorph(name) ? 0.0 : dynamicWeight;
+            moodState.appliedMorphNames.add(name);
+            if (!moodState.activeMorphs[name]) {
+                moodState.activeMorphs[name] = { current: 0.0, target: targetWeight };
+            } else {
+                moodState.activeMorphs[name].target = targetWeight;
+            }
+        });
+
+        // Animate Morphs (Lerp)
         const lerpSpeed = 2.0; // Faster response
 
         for (const [name, data] of Object.entries(moodState.activeMorphs)) {
@@ -246,12 +283,20 @@ export function createFaceAnimationController(options = {}) {
                 data.current += diff * lerpSpeed * dt;
             }
 
-            // Apply using robust helper
-            applyMorphTarget(vrm, name, data.current);
+            // While speaking, mouth-shape mood morphs must not interfere with visemes.
+            if (speaking && isMouthMorph(name)) {
+                data.current = 0.0;
+                data.target = 0.0;
+                applyMorphTarget(vrm, name, 0.0);
+            } else {
+                // Apply using robust helper
+                applyMorphTarget(vrm, name, data.current);
+            }
 
             // Cleanup if 0 and target is 0
             if (data.target === 0 && data.current === 0) {
                 delete moodState.activeMorphs[name];
+                moodState.appliedMorphNames.delete(name);
             }
         }
     }
@@ -270,15 +315,40 @@ export function createFaceAnimationController(options = {}) {
         }
     }
 
-    const lateUpdate = (dt) => {
+    const lateUpdate = (dt, runtime = {}) => {
         const vrm = getVRM?.();
         if (!vrm) return;
-        updateMicroExpressions(dt, vrm);
+
+        if (!moodState.autoExpressionsEnabled) {
+            clearAutoMorphs(vrm);
+            return;
+        }
+
+        updateMicroExpressions(dt, vrm, runtime);
+    };
+
+    const setMood = (moodName, intensity = 1.0) => {
+        const raw = (typeof moodName === "string" ? moodName.trim().toLowerCase() : "") || "neutral";
+        const canonical = MOOD_ALIASES[raw] || raw;
+        moodState.current = MOODS[canonical] ? canonical : "neutral";
+        moodState.intensity = clamp01(intensity);
+        state.currentMood = moodState.current;
+    };
+
+    const setAutoExpressionsEnabled = (enabled) => {
+        moodState.autoExpressionsEnabled = !!enabled;
+    };
+
+    const setMoodVariationScale = (scale = 1.0) => {
+        moodState.variationScale = clamp01(scale);
     };
 
     return {
         update,
         lateUpdate,
+        setMood,
+        setAutoExpressionsEnabled,
+        setMoodVariationScale,
         getState: () => state,
     };
 }

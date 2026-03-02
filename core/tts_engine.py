@@ -9,8 +9,10 @@ from pathlib import Path
 try:
     from chatterbox import ChatterboxTTS
     CHATTERBOX_AVAILABLE = True
-except ImportError:
+    CHATTERBOX_IMPORT_ERROR = None
+except ImportError as e:
     CHATTERBOX_AVAILABLE = False
+    CHATTERBOX_IMPORT_ERROR = e
 
 class TTSEngine:
     def __init__(self, device=None):
@@ -19,7 +21,12 @@ class TTSEngine:
         
     def load(self):
         if not CHATTERBOX_AVAILABLE:
-            raise RuntimeError("chatterbox-tts not installed in venv.")
+            detail = f" Root import error: {CHATTERBOX_IMPORT_ERROR}" if CHATTERBOX_IMPORT_ERROR else ""
+            raise RuntimeError(
+                "chatterbox-tts not installed in venv. "
+                "Install with: pip install --no-deps chatterbox-tts==0.1.6"
+                + detail
+            )
             
         if self.model is not None:
             return

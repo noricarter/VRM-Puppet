@@ -5,6 +5,7 @@ import json
 import urllib.request
 import time
 import tempfile
+import subprocess
 import speech_recognition as sr
 import mss
 import base64
@@ -42,6 +43,7 @@ WHISPER_MODEL_SIZE = 'medium'
 # int8_float16 = ~3 GB VRAM (recommended when sharing GPU with TTS + LLM)
 # float16      = ~6.5 GB VRAM (full precision, use only if GPU has 16+ free GB)
 WHISPER_COMPUTE_TYPE = 'int8_float16'
+AUTO_SETUP_AUDIO_MIXER = True
 
 
 # Ensure launcher bridge exists
@@ -169,7 +171,107 @@ class HUDAPI:
         self._whisper = WhisperModel(WHISPER_MODEL_SIZE, device='cuda', compute_type=WHISPER_COMPUTE_TYPE)
         print(f"[HUD] Whisper model ready.")
 
+        if AUTO_SETUP_AUDIO_MIXER:
+            self._ensure_mix_minus_pipeline()
+
         self.list_devices()
+
+    def _pactl_list_short(self, kind: str):
+        """Return parsed rows from `pactl list short <kind>` or [] if unavailable."""
+        try:
+            out = subprocess.check_output(
+                ["pactl", "list", "short", kind],
+                text=True,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            return []
+        rows = []
+        for line in out.strip().splitlines():
+            parts = line.split("\t")
+            if parts:
+                rows.append(parts)
+        return rows
+
+    def _module_exists(self, module_name: str, *arg_snippets: str) -> bool:
+        for row in self._pactl_list_short("modules"):
+            if len(row) < 3:
+                continue
+            name = row[1]
+            args = row[2]
+            if name != module_name:
+                continue
+            if all(s in args for s in arg_snippets):
+                return True
+        return False
+
+    def _sink_exists(self, sink_name: str) -> bool:
+        return any(len(row) > 1 and row[1] == sink_name for row in self._pactl_list_short("sinks"))
+
+    def _source_exists(self, source_name: str) -> bool:
+        return any(len(row) > 1 and row[1] == source_name for row in self._pactl_list_short("sources"))
+
+    def _load_module_if_missing(self, module_name: str, args: list[str], exists_check=None):
+        if exists_check and exists_check():
+            return
+        if self._module_exists(module_name, *args):
+            return
+        try:
+            module_id = subprocess.check_output(
+                ["pactl", "load-module", module_name, *args],
+                text=True
+            ).strip()
+            print(f"[HUD][Audio] Loaded {module_name} (id {module_id})")
+        except Exception as e:
+            print(f"[HUD][Audio] Failed loading {module_name}: {e}")
+
+    def _ensure_mix_minus_pipeline(self):
+        """
+        Build virtual audio routing automatically after reboot.
+        Safe to call repeatedly: existing nodes are reused.
+        """
+        print("[HUD][Audio] Ensuring mix-minus audio pipeline...")
+        # Bucket A: Discord hears user + AI
+        self._load_module_if_missing(
+            "module-null-sink",
+            ["sink_name=Discord_Out_Mix", "sink_properties=device.description=What_Discord_Hears"],
+            exists_check=lambda: self._sink_exists("Discord_Out_Mix"),
+        )
+
+        # Bucket B: AI hears user + desktop (not her own TTS)
+        self._load_module_if_missing(
+            "module-null-sink",
+            ["sink_name=AI_In_Mix", "sink_properties=device.description=What_AI_Hears"],
+            exists_check=lambda: self._sink_exists("AI_In_Mix"),
+        )
+
+        # Physical mic -> both buckets
+        self._load_module_if_missing(
+            "module-loopback",
+            ["source=@DEFAULT_SOURCE@", "sink=Discord_Out_Mix"],
+        )
+        self._load_module_if_missing(
+            "module-loopback",
+            ["source=@DEFAULT_SOURCE@", "sink=AI_In_Mix"],
+        )
+
+        # Desktop monitor -> AI bucket
+        self._load_module_if_missing(
+            "module-loopback",
+            ["source=@DEFAULT_SINK@.monitor", "sink=AI_In_Mix"],
+        )
+
+        # Fake mic for Discord input
+        self._load_module_if_missing(
+            "module-remap-source",
+            [
+                "source_name=Virtual_Mic_For_Discord",
+                "master=Discord_Out_Mix.monitor",
+                "master_channel_map=front-left,front-right",
+                "source_properties=device.description=Virtual_Microphone_For_Discord",
+            ],
+            exists_check=lambda: self._source_exists("Virtual_Mic_For_Discord"),
+        )
 
     def _transcribe_audio(self, audio: sr.AudioData, label: str = 'STT') -> str:
         """Transcribe an sr.AudioData object using local faster-whisper."""
@@ -200,6 +302,74 @@ class HUDAPI:
             print(f"Device {i}: {info.get('name')} (Inputs: {info.get('maxInputChannels')})")
         print("[HUD][DEBUG] --------------------------\n")
         p.terminate()
+
+    def _pick_input_device(self, mode="mix_monitor"):
+        """
+        Pick input device by capture mode.
+        mode="mix_monitor": monitor/mix-minus input (ears / AI mix monitor).
+        mode="mic_direct":  direct mic input for normal hands-free chat.
+        """
+        import pyaudio
+        p = pyaudio.PyAudio()
+        try:
+            first_input = None
+            ai_mix_monitor = None
+            pulse_default = None
+            ears_idx = None
+            direct_mic = None
+            for i in range(p.get_device_count()):
+                info = p.get_device_info_by_index(i)
+                name = str(info.get('name', ''))
+                if info.get('maxInputChannels', 0) <= 0:
+                    continue
+                if first_input is None:
+                    first_input = i
+                lower = name.lower()
+                is_mix_name = (
+                    ('ears' in lower) or
+                    ('monitor of' in lower) or
+                    ('what_ai_hears' in lower) or
+                    ('ai_in_mix' in lower and 'monitor' in lower)
+                )
+                if 'ears' in lower and ears_idx is None:
+                    ears_idx = i
+                if ai_mix_monitor is None and (
+                    ("what_ai_hears" in lower) or
+                    ("ai_in_mix" in lower and "monitor" in lower)
+                ):
+                    ai_mix_monitor = i
+                if pulse_default is None and ('pulse' in lower or 'default' in lower):
+                    pulse_default = i
+
+                # Direct mic candidates: avoid monitor/mix device names.
+                if direct_mic is None and not is_mix_name:
+                    direct_mic = i
+
+            if mode == "mic_direct":
+                if pulse_default is not None:
+                    print(f"[HUD][Audio] Using pulse/default mic input device id={pulse_default}")
+                    return pulse_default
+                if direct_mic is not None:
+                    print(f"[HUD][Audio] Direct mic fallback to hardware input device id={direct_mic}")
+                    return direct_mic
+            else:
+                if ears_idx is not None:
+                    print(f"[HUD][Audio] Using 'ears' input device id={ears_idx}")
+                    return ears_idx
+                if ai_mix_monitor is not None:
+                    print(f"[HUD][Audio] Using AI mix monitor input device id={ai_mix_monitor}")
+                    return ai_mix_monitor
+                if pulse_default is not None:
+                    print(f"[HUD][Audio] Mix monitor fallback to pulse/default id={pulse_default}")
+                    return pulse_default
+
+            if first_input is not None:
+                print(f"[HUD][Audio] Using first available input device id={first_input}")
+                return first_input
+            print("[HUD][Audio] No explicit input device found, falling back to system default.")
+            return None
+        finally:
+            p.terminate()
 
     def quit(self):
         print("[HUD] Quitting...")
@@ -268,19 +438,7 @@ class HUDAPI:
         print("[HUD] Listening...")
         r = sr.Recognizer()
         r.pause_threshold = 1.5
-
-        # Wait for ALSA to discover the custom 'ears' bridge
-        target_index = None
-        import pyaudio
-        p = pyaudio.PyAudio()
-        try:
-            for i in range(p.get_device_count()):
-                info = p.get_device_info_by_index(i)
-                if 'ears' in info.get('name', '').lower():
-                    target_index = i
-                    break
-        finally:
-            p.terminate()
+        target_index = self._pick_input_device(mode="mic_direct")
 
         with sr.Microphone(device_index=target_index) as source:
             r.adjust_for_ambient_noise(source, duration=0.5)
@@ -321,17 +479,9 @@ class HUDAPI:
         r.dynamic_energy_threshold = True
         r.pause_threshold = 1.5  # Seconds of silence before considering speech done
         
-        target_index = None
-        import pyaudio
-        p = pyaudio.PyAudio()
-        try:
-            for i in range(p.get_device_count()):
-                info = p.get_device_info_by_index(i)
-                if 'ears' in info.get('name', '').lower():
-                    target_index = i
-                    break
-        finally:
-            p.terminate()
+        # Hands-free uses direct mic unless observer/stream modes are active.
+        capture_mode = "mix_monitor" if self.observer_role in ["observer", "audiobook", "stream_companion"] else "mic_direct"
+        target_index = self._pick_input_device(mode=capture_mode)
 
         try:
             with sr.Microphone(device_index=target_index) as source:
@@ -428,26 +578,7 @@ class HUDAPI:
         r = sr.Recognizer()
         r.pause_threshold = 0.8
         
-        monitor_index = None
-        import pyaudio
-        p = pyaudio.PyAudio()
-        try:
-            for i in range(p.get_device_count()):
-                info = p.get_device_info_by_index(i)
-                if 'ears' in info.get('name', '').lower():
-                    monitor_index = i
-                    print(f"[HUD][Observer] ALSA Bridge Active: {info.get('name')} (id {i})")
-                    break
-            
-            if monitor_index is None:
-                for i in range(p.get_device_count()):
-                    info = p.get_device_info_by_index(i)
-                    if info.get('maxInputChannels') > 0 and ('pulse' in info.get('name').lower() or 'default' in info.get('name').lower()):
-                        monitor_index = i
-                        print(f"[HUD][Observer] FALLBACK to generic pulse/default input: {info.get('name')} (id {i})")
-                        break
-        finally:
-            p.terminate()
+        monitor_index = self._pick_input_device(mode="mix_monitor")
 
         # PERSISTENT SESSION: Open mic once outside the loop for stability
         try:
@@ -555,27 +686,15 @@ class HUDAPI:
         r.pause_threshold = 1.0
         r.dynamic_energy_threshold = True
 
-        monitor_index = None
+        monitor_index = self._pick_input_device(mode="mix_monitor")
         monitor_name = "Unknown"
-        import pyaudio
-        p = pyaudio.PyAudio()
-        try:
-            for i in range(p.get_device_count()):
-                info = p.get_device_info_by_index(i)
-                if 'ears' in info.get('name', '').lower():
-                    monitor_index = i
-                    monitor_name = info.get('name')
-                    break
-            if monitor_index is None:
-                for i in range(p.get_device_count()):
-                    info = p.get_device_info_by_index(i)
-                    dev_name = info.get('name', '').lower()
-                    if info.get('maxInputChannels') > 0 and ('pulse' in dev_name or 'default' in dev_name):
-                        monitor_index = i
-                        monitor_name = info.get('name')
-                        break
-        finally:
-            p.terminate()
+        if monitor_index is not None:
+            import pyaudio
+            p = pyaudio.PyAudio()
+            try:
+                monitor_name = p.get_device_info_by_index(monitor_index).get('name', 'Unknown')
+            finally:
+                p.terminate()
 
         def _instant_screenshot_worker(result_container):
             """Captures the screen instantly in a daemon thread."""
