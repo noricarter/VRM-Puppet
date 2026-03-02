@@ -644,6 +644,14 @@ def get_all_animations():
     conn.close()
     return [dict(r) for r in rows]
 
+def get_animation_count():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM registry_animations')
+    count = cursor.fetchone()[0]
+    conn.close()
+    return int(count or 0)
+
 def delete_animation(anim_id):
     conn = get_connection()
     cursor = conn.cursor()
@@ -926,20 +934,32 @@ def kg_add_relation(actor_id, subject_id, predicate, object_id=None,
     conn.commit()
     conn.close()
 
-def kg_get_relations(actor_id, subject_id, min_confidence=0.5):
-    """Get all relations where this subject appears (as subject or object)."""
+def kg_get_relations(actor_id, subject_id, min_confidence=0.5, include_incoming=True):
+    """Get relations for a subject. Incoming edges are optional."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT r.*, ss.canonical_name AS subject_name, os.canonical_name AS object_name
-        FROM kg_relations r
-        JOIN kg_subjects ss ON ss.subject_id = r.subject_id
-        LEFT JOIN kg_subjects os ON os.subject_id = r.object_id
-        WHERE r.actor_id = ?
-          AND (r.subject_id = ? OR r.object_id = ?)
-          AND r.confidence >= ?
-        ORDER BY r.confidence DESC, r.timestamp DESC
-    ''', (actor_id, subject_id, subject_id, min_confidence))
+    if include_incoming:
+        cursor.execute('''
+            SELECT r.*, ss.canonical_name AS subject_name, os.canonical_name AS object_name
+            FROM kg_relations r
+            JOIN kg_subjects ss ON ss.subject_id = r.subject_id
+            LEFT JOIN kg_subjects os ON os.subject_id = r.object_id
+            WHERE r.actor_id = ?
+              AND (r.subject_id = ? OR r.object_id = ?)
+              AND r.confidence >= ?
+            ORDER BY r.confidence DESC, r.timestamp DESC
+        ''', (actor_id, subject_id, subject_id, min_confidence))
+    else:
+        cursor.execute('''
+            SELECT r.*, ss.canonical_name AS subject_name, os.canonical_name AS object_name
+            FROM kg_relations r
+            JOIN kg_subjects ss ON ss.subject_id = r.subject_id
+            LEFT JOIN kg_subjects os ON os.subject_id = r.object_id
+            WHERE r.actor_id = ?
+              AND r.subject_id = ?
+              AND r.confidence >= ?
+            ORDER BY r.confidence DESC, r.timestamp DESC
+        ''', (actor_id, subject_id, min_confidence))
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1007,7 +1027,8 @@ def kg_retrieve_context(actor_id, names_mentioned, min_confidence=0.5, max_subje
                 line += f"\n  ↳ {ancestry_str}"
 
             # Relations
-            relations = kg_get_relations(actor_id, sid, min_confidence)
+            # Prompt context prefers direct (outgoing) facts to avoid inverted/odd phrasing.
+            relations = kg_get_relations(actor_id, sid, min_confidence, include_incoming=False)
             for rel in relations[:4]:
                 obj_str = rel.get('object_name') or rel.get('object_literal') or '?'
                 line += f"\n  • {rel['subject_name']} → {rel['predicate']} → {obj_str}"

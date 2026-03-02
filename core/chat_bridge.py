@@ -5,6 +5,8 @@ import urllib.parse
 import uuid
 import time
 import os
+import sys
+import subprocess
 import shutil
 import threading
 import queue
@@ -145,6 +147,75 @@ def _is_valid_kg_predicate(predicate):
     if any(ch in p for ch in ".!?,:;"):
         return False
     return bool(re.match(r'^[a-z0-9_ -]+$', p))
+
+
+def _canonical_emotion_state(raw_state):
+    """Map arbitrary mood labels to HUD canonical states."""
+    s = (str(raw_state or "")).strip().lower()
+    if not s:
+        return None
+    if s in {"neutral", "positive", "negative_sad", "negative_embarrassed", "negative_sad_embarrassed", "negative_anger"}:
+        return s
+    if any(k in s for k in ("angry", "anger", "annoy", "furious", "irritat", "mad")):
+        return "negative_anger"
+    if any(k in s for k in ("embarrass", "fluster", "shy", "awkward")) and any(k in s for k in ("sad", "sorrow", "down")):
+        return "negative_sad_embarrassed"
+    if any(k in s for k in ("embarrass", "fluster", "shy", "awkward")):
+        return "negative_embarrassed"
+    if any(k in s for k in ("sad", "sorrow", "down", "hurt", "upset")):
+        return "negative_sad"
+    if any(k in s for k in ("happy", "joy", "positive", "excited", "warm")):
+        return "positive"
+    if any(k in s for k in ("calm", "content", "relaxed", "focused")):
+        return "neutral"
+    return None
+
+
+def _infer_emotion_for_presentation(reasoning_data, thought, ai_text):
+    """
+    Derive per-turn emotion signal for avatar presentation.
+    Priority:
+    1) explicit fields from reasoning JSON
+    2) heuristic inference from thought/response text
+    """
+    rd = reasoning_data if isinstance(reasoning_data, dict) else {}
+
+    explicit_state = (
+        rd.get("emotion_state")
+        or rd.get("emotion")
+        or rd.get("facial_mood")
+        or rd.get("avatar_mood")
+        or rd.get("mood")
+    )
+    state = _canonical_emotion_state(explicit_state)
+
+    raw_intensity = (
+        rd.get("emotion_intensity")
+        or rd.get("intensity")
+        or rd.get("affect_intensity")
+    )
+    try:
+        intensity = float(raw_intensity)
+    except Exception:
+        intensity = 1.0
+    intensity = max(0.0, min(1.0, intensity))
+
+    if state:
+        hold_sec = 10 if state.startswith("negative_") else 6
+        return state, intensity, hold_sec, "explicit"
+
+    blob = f"{thought or ''}\n{ai_text or ''}".lower()
+    if any(k in blob for k in ("furious", "enraged", "scream", "infuriat", "pissed", "angry", "why do we have to go through this")):
+        return "negative_anger", 0.9, 10, "heuristic"
+    if any(k in blob for k in ("embarrass", "fluster", "shy", "blush", "awkward")) and any(k in blob for k in ("sad", "down", "upset", "hurt")):
+        return "negative_sad_embarrassed", 0.85, 10, "heuristic"
+    if any(k in blob for k in ("embarrass", "fluster", "shy", "blush", "awkward")):
+        return "negative_embarrassed", 0.8, 8, "heuristic"
+    if any(k in blob for k in ("sad", "sorrow", "down", "upset", "hurt", "tear")):
+        return "negative_sad", 0.8, 9, "heuristic"
+    if any(k in blob for k in ("happy", "glad", "excited", "love", "great", "awesome", "yay")):
+        return "positive", 0.75, 6, "heuristic"
+    return "neutral", 0.55, 4, "fallback"
 
 
 # --- REASONING HELPERS ---
@@ -307,19 +378,19 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
     
     ai_full_text = ""
     reasoning_data = {}
-    
-    print(f"--- Calling Ollama Chat (Model: {requested_model}) ---")
-    
-    try:
-        req = urllib.request.Request(ollama_url, data=json.dumps(ollama_payload).encode('utf-8'))
-        raw_json = "{}"
+
+    def _call_ollama_chat(payload):
+        model_name = payload.get("model", requested_model)
+        print(f"--- Calling Ollama Chat (Model: {model_name}) ---")
+        req = urllib.request.Request(ollama_url, data=json.dumps(payload).encode('utf-8'))
+        raw = "{}"
         try:
             with urllib.request.urlopen(req) as resp:
                 result_data = json.loads(resp.read().decode('utf-8'))
-                raw_json = result_data.get('message', {}).get('content', '{}')
+                raw = result_data.get('message', {}).get('content', '{}')
         except urllib.error.HTTPError as he:
             if he.code == 404:
-                warn_msg = f"Model '{requested_model}' not found in Ollama."
+                warn_msg = f"Model '{model_name}' not found in Ollama."
                 print(f"!!! {warn_msg} Attempting auto-fallback...")
                 streamer.push("system_warn", {"text": f"⚠️ {warn_msg} Trying fallback..."})
                 try:
@@ -331,11 +402,11 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                             fallback_name = available[0].get('name')
                             print(f"--- Fallback: Retrying with '{fallback_name}' ---")
                             streamer.push("system_warn", {"text": f"🔄 Falling back to: {fallback_name}"})
-                            ollama_payload['model'] = fallback_name
-                            req = urllib.request.Request(ollama_url, data=json.dumps(ollama_payload).encode('utf-8'))
+                            payload['model'] = fallback_name
+                            req = urllib.request.Request(ollama_url, data=json.dumps(payload).encode('utf-8'))
                             with urllib.request.urlopen(req) as resp2:
                                 res2_data = json.loads(resp2.read().decode('utf-8'))
-                                raw_json = res2_data.get('message', {}).get('content', '{}')
+                                raw = res2_data.get('message', {}).get('content', '{}')
                         else:
                             raise Exception("No fallback models found.")
                 except Exception as fe:
@@ -349,104 +420,194 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
             streamer.push("system_warn", {"text": f"🌐 Ollama Connection Error: {str(oe)}"})
             streamer.push("error", f"Brain disconnect: {str(oe)}")
             raise oe
+        return raw
 
-        # --- Safe Defaults ---
-        # Prevent UnboundLocalError if JSON extraction fails completely
-        thought = "Thinking..."
-        intent = ""
-        selection_type = "no_action"
-        selected_action = None
-        confidence = 0.0
-        response_mode = "speak"
-        memory_note = ""
-        search_query = None
-        memory_query = None
-        ai_full_text = ""
+    def _extract_reasoning(raw_json_text):
+        # Safe defaults
+        out = {
+            "reasoning_data": {},
+            "thought": "Thinking...",
+            "intent": "",
+            "selection_type": "no_action",
+            "selected_action": None,
+            "confidence": 0.0,
+            "response_mode": "speak",
+            "memory_note": "",
+            "search_query": None,
+            "memory_query": None,
+            "ai_full_text": "",
+        }
+
+        print(f"Raw Response: {raw_json_text}")
+
+        # LLMs sometimes add markdown blocks or trailing text
+        start_idx = raw_json_text.find('{')
+        end_idx = raw_json_text.rfind('}')
+        if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
+            clean_json_str = raw_json_text[start_idx:end_idx + 1]
+        else:
+            clean_json_str = raw_json_text
 
         try:
-            print(f"Raw Response: {raw_json}")
-            
-            # --- Robust JSON Extraction ---
-            # LLMs sometimes add markdown blocks or trailing text
-            start_idx = raw_json.find('{')
-            end_idx = raw_json.rfind('}')
-            if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
-                clean_json_str = raw_json[start_idx:end_idx+1]
+            out["reasoning_data"] = json.loads(clean_json_str)
+        except Exception as je:
+            print(f"JSON Parse Error: {je}")
+            print(f"Raw was: {raw_json_text}")
+            streamer.push("system_warn", {"text": f"🧩 Brain Salad (JSON Error): {str(je)}"})
+            # Attempt to use regex as a last resort
+            found_response = re.search(r'"response":\s*"(.*?)"', raw_json_text, re.DOTALL)
+            if found_response:
+                out["reasoning_data"] = {"response": found_response.group(1), "response_mode": "speak"}
+                streamer.push("system_warn", {"text": "🩹 Recovered dialogue via regex fallback."})
+
+        rd = out["reasoning_data"]
+        out["ai_full_text"] = rd.get('response') or rd.get('text') or rd.get('dialogue') or ""
+        out["thought"] = rd.get('thought', out["thought"])
+        out["intent"] = rd.get('physical_intent', out["intent"])
+        out["selection_type"] = rd.get('selection_type', out["selection_type"])
+        out["selected_action"] = rd.get('action')
+        out["confidence"] = rd.get('confidence', out["confidence"])
+        out["response_mode"] = rd.get('response_mode', out["response_mode"])
+
+        memory_note = rd.get('memory_note')
+        out["memory_note"] = memory_note.strip() if isinstance(memory_note, str) else ""
+
+        search_query = rd.get('search_query')
+        out["search_query"] = search_query.strip() if isinstance(search_query, str) and search_query.strip() else None
+        memory_query = rd.get('memory_query')
+        out["memory_query"] = memory_query.strip() if isinstance(memory_query, str) and memory_query.strip() else None
+
+        # Fallback for silent speak mode
+        if out["response_mode"] == 'speak' and not out["ai_full_text"]:
+            out["ai_full_text"] = "Hmm, interesting. Let me think about that one."
+
+        # Enforce threshold for execution only
+        if out["selection_type"] == 'appropriate_action' and (not out["selected_action"] or out["confidence"] < 0.7):
+            out["selected_action"] = None
+            out["selection_type"] = 'missing_action'
+            out["thought"] += " (Downgraded to missing: Confidence below threshold or no file)"
+
+        return out
+
+    try:
+        parsed = _extract_reasoning(_call_ollama_chat(ollama_payload))
+        reasoning_data = parsed["reasoning_data"]
+        thought = parsed["thought"]
+        intent = parsed["intent"]
+        selection_type = parsed["selection_type"]
+        selected_action = parsed["selected_action"]
+        confidence = parsed["confidence"]
+        response_mode = parsed["response_mode"]
+        memory_note = parsed["memory_note"]
+        search_query = parsed["search_query"]
+        memory_query = parsed["memory_query"]
+        ai_full_text = parsed["ai_full_text"]
+
+        # Resolve search/memory internally so the user gets a single final response.
+        if search_query or memory_query:
+            followup_user_msg = ""
+            if search_query:
+                print(f"--- Triggering Web Research: {search_query} ---")
+                streamer.push("system_warn", {"text": f"🔍 Researching: {search_query}"})
+                try:
+                    research_results = search_and_summarize(search_query)
+                    followup_user_msg = f"[RESEARCH_RESULT] Search query: '{search_query}'\nFindings:\n{research_results}"
+                except Exception as se:
+                    print(f"Web Research Error: {se}")
+                    streamer.push("system_warn", {"text": f"🕳️ Research Failed: {str(se)}"})
+                    followup_user_msg = (
+                        f"[RESEARCH_RESULT] Search query: '{search_query}'\n"
+                        f"Findings:\nSearch failed: {str(se)}"
+                    )
             else:
-                clean_json_str = raw_json
+                print(f"--- Triggering Memory Research: {memory_query} ---")
+                streamer.push("system_warn", {"text": f"🧠 Recalling: {memory_query}"})
+                try:
+                    kg_context = db_manager.kg_retrieve_context(
+                        actor_id,
+                        [memory_query],
+                        active_context=active_context
+                    )
+                    if kg_context:
+                        followup_user_msg = f"[MEMORY_RESULT] Memory query: '{memory_query}'\nFindings:\n{kg_context}"
+                    else:
+                        followup_user_msg = (
+                            f"[MEMORY_RESULT] Memory query: '{memory_query}'\n"
+                            f"Findings:\nNo information found in memory for '{memory_query}'."
+                        )
+                except Exception as me:
+                    print(f"Memory Research Error: {me}")
+                    streamer.push("system_warn", {"text": f"🕳️ Memory Recall Failed: {str(me)}"})
+                    followup_user_msg = (
+                        f"[MEMORY_RESULT] Memory query: '{memory_query}'\n"
+                        f"Findings:\nMemory retrieval failed: {str(me)}"
+                    )
 
-            try:
-                reasoning_data = json.loads(clean_json_str)
-            except Exception as je:
-                print(f"JSON Parse Error: {je}")
-                print(f"Raw was: {raw_json}")
-                streamer.push("system_warn", {"text": f"🧩 Brain Salad (JSON Error): {str(je)}"})
-                # Attempt to use regex as a last resort
-                found_response = re.search(r'"response":\s*"(.*?)"', raw_json, re.DOTALL)
-                if found_response:
-                    reasoning_data = {"response": found_response.group(1), "response_mode": "speak"}
-                    streamer.push("system_warn", {"text": "🩹 Recovered dialogue via regex fallback."})
-                else:
-                    reasoning_data = {}
+            followup_messages = messages + [
+                {"role": "assistant", "content": json.dumps(reasoning_data)},
+                {"role": "user", "content": followup_user_msg}
+            ]
+            followup_clean_history = [m for m in followup_messages if m.get('role') in ('user', 'assistant')]
+            followup_trigger = followup_messages[-1]['content'] if followup_messages else trigger_message
+            followup_system_msg = _composer.build_system_prompt(
+                actor_id=actor_id,
+                message=followup_trigger,
+                action_library_str=lib_str,
+                legacy_persona=db_manager.get_actor_trait(actor_id, "persona", "You are a helpful AI."),
+                legacy_background=db_manager.get_actor_trait(actor_id, "background_memory", ""),
+                extra_context=extra_data.get('extra_context') if extra_data else None,
+                known_contexts=db_manager.kg_get_contexts(actor_id),
+                active_context=active_context,
+            )
+            followup_payload = {
+                "model": ollama_payload.get("model", requested_model),
+                "messages": [{"role": "system", "content": followup_system_msg}] + followup_clean_history,
+                "format": "json",
+                "stream": False,
+                "keep_alive": -1,
+                "options": ollama_payload.get("options", {})
+            }
 
-            # --- Response Repair Layer ---
-            # Some models hallucinate keys like "text" or "dialogue"
-            ai_full_text = reasoning_data.get('response') or reasoning_data.get('text') or reasoning_data.get('dialogue') or ""
-            
-            thought = reasoning_data.get('thought', 'Thinking...')
-            intent = reasoning_data.get('physical_intent', '')
-            selection_type = reasoning_data.get('selection_type', 'no_action')
-            selected_action = reasoning_data.get('action')
-            confidence = reasoning_data.get('confidence', 0)
-            response_mode = reasoning_data.get('response_mode', 'speak')
-            
-            # Safe extraction for fields that might be explicitly returned as `null` by the LLM
-            memory_note = reasoning_data.get('memory_note')
-            memory_note = memory_note.strip() if memory_note else ''
-            
-            search_query = reasoning_data.get('search_query')
-            if search_query and isinstance(search_query, str):
-                search_query = search_query.strip()
-                
-            memory_query = reasoning_data.get('memory_query')
-            if memory_query and isinstance(memory_query, str):
-                memory_query = memory_query.strip()
-            
-            # --- MANDATORY ACKNOWLEDGEMENT ---
-            # If we are searching but have no response text, synthesize one
-            if search_query and not ai_full_text and response_mode != 'absorb':
-                ai_full_text = f"Sure! I'll look up information about '{search_query}' right away."
+            parsed = _extract_reasoning(_call_ollama_chat(followup_payload))
+            reasoning_data = parsed["reasoning_data"]
+            thought = parsed["thought"]
+            intent = parsed["intent"]
+            selection_type = parsed["selection_type"]
+            selected_action = parsed["selected_action"]
+            confidence = parsed["confidence"]
+            response_mode = parsed["response_mode"]
+            memory_note = parsed["memory_note"]
+            ai_full_text = parsed["ai_full_text"]
+            # Prevent a recursive tool loop in this same turn.
+            search_query = None
+            memory_query = None
 
-            elif response_mode == 'speak' and not ai_full_text:
-                # Fallback for silent speak mode
-                ai_full_text = "Hmm, interesting. Let me think about that one."
-            
-            # Enforce Threshold for execution only
-            if selection_type == 'appropriate_action' and (not selected_action or confidence < 0.7):
-                selected_action = None
-                selection_type = 'missing_action' # Downgrade if confidence is low
-                thought += " (Downgraded to missing: Confidence below threshold or no file)"
-            
-            # Push reasoning info to UI early, BEFORE any blocking calls
-            streamer.push("reasoning", {
-                "thought": thought,
-                "intent": intent,
-                "selection_type": selection_type,
-                "action": selected_action,
-                "confidence": confidence
+        # Push reasoning info once, after tool resolution.
+        streamer.push("reasoning", {
+            "thought": thought,
+            "intent": intent,
+            "selection_type": selection_type,
+            "action": selected_action,
+            "confidence": confidence
+        })
+
+        # Emit per-turn emotion signal for real-time avatar expression/overlays.
+        emo_state, emo_intensity, emo_hold_sec, emo_source = _infer_emotion_for_presentation(
+            reasoning_data, thought, ai_full_text
+        )
+        streamer.push("emotion", {
+            "state": emo_state,
+            "intensity": emo_intensity,
+            "hold_sec": emo_hold_sec,
+            "source": emo_source
+        })
+
+        if selection_type == 'appropriate_action' and selected_action:
+            viewer_path = f"assets/animations/{selected_action}"
+            streamer.push("action", {
+                "url": viewer_path,
+                "name": selected_action
             })
-            
-            # If an appropriate action was selected, push it to trigger the viewer
-            if selection_type == 'appropriate_action' and selected_action:
-                # Resolve relative path for frontend
-                viewer_path = f"assets/animations/{selected_action}"
-                streamer.push("action", {
-                    "url": viewer_path,
-                    "name": selected_action
-                })
-        except Exception as e:
-            print(f"Processing Error: {e}")
-            ai_full_text = "Internal error during reasoning extraction."
 
         spoken_text = clean_text_for_speech(ai_full_text) if ai_full_text else ""
 
@@ -576,8 +737,14 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                 try:
                     tts_engine.generate(clean_para, wav_path, voice_reference_audio=voice_ref)
                 except Exception as e:
+                    warn = f"TTS unavailable for this chunk: {e}"
                     print(f"TTS Fail: {e}")
-                    streamer.push("error", f"TTS Failed: {e}")
+                    # Degrade gracefully: keep chat functional even when voice backend is down.
+                    streamer.push("system_warn", {"text": warn})
+                    streamer.push("assistant_text", {
+                        "text": clean_para,
+                        "stats": {"energy": new_energy}
+                    })
                     continue
 
                 vis_path = os.path.join(TEMP_DIR, f"{audio_id}_visemes.json")
@@ -590,64 +757,8 @@ def generate_and_stream(messages, actor_id, requested_model, voice_desc, images=
                     "stats": {"energy": new_energy}
                 })
 
-        # 4. Wait to Finish if Searching
-        if not search_query and not memory_query:
-            streamer.push("done", {})
-            print("--- Stream Complete ---")
-        
-        # 5. Execute explicit Web Research (if requested)
-        if search_query:
-            # Execute search synchronously within this background thread context
-            print(f"--- Triggering Web Research: {search_query} ---")
-            streamer.push("system_warn", {"text": f"🔍 Researching: {search_query}"})
-            try:
-                research_results = search_and_summarize(search_query)
-                # Trigger a follow-up Research Pulse back into the queue
-                research_msg = f"[RESEARCH_RESULT] Search query: '{search_query}'\nFindings:\n{research_results}"
-                print(f"--- [Research] Triggering follow-up for: {search_query} ---")
-                
-                # We reuse the same messages but append the findings
-                followup_messages = messages + [{"role": "assistant", "content": json.dumps(reasoning_data)}, {"role": "user", "content": research_msg}]
-                chat_queue.put({
-                    "messages": followup_messages,
-                    "actor_id": actor_id,
-                    "model": requested_model,
-                    "voice_desc": voice_desc,
-                    "images": images,
-                    "active_context": active_context if 'active_context' in locals() else "research_loop"
-                })
-            except Exception as se:
-                print(f"Web Research Error: {se}")
-                streamer.push("system_warn", {"text": f"🕳️ Research Failed: {str(se)}"})
-                streamer.push("done", {})
-                print("--- Stream Complete (Search Failed) ---")
-
-        # 6. Execute Memory Query (if requested)
-        elif memory_query:
-            print(f"--- Triggering Memory Research: {memory_query} ---")
-            streamer.push("system_warn", {"text": f"🧠 Recalling: {memory_query}"})
-            try:
-                kg_context = db_manager.kg_retrieve_context(actor_id, [memory_query], active_context=active_context if 'active_context' in locals() else None)
-                if kg_context:
-                    memory_msg = f"[MEMORY_RESULT] Memory query: '{memory_query}'\nFindings:\n{kg_context}"
-                else:
-                    memory_msg = f"[MEMORY_RESULT] Memory query: '{memory_query}'\nFindings:\nNo information found in memory for '{memory_query}'."
-                
-                print(f"--- [Memory] Triggering follow-up for: {memory_query} ---")
-                followup_messages = messages + [{"role": "assistant", "content": json.dumps(reasoning_data)}, {"role": "user", "content": memory_msg}]
-                chat_queue.put({
-                    "messages": followup_messages,
-                    "actor_id": actor_id,
-                    "model": requested_model,
-                    "voice_desc": voice_desc,
-                    "images": images,
-                    "extra_data": extra_data
-                })
-            except Exception as me:
-                print(f"Memory Research Error: {me}")
-                streamer.push("system_warn", {"text": f"🕳️ Memory Recall Failed: {str(me)}"})
-                streamer.push("done", {})
-                print("--- Stream Complete (Memory Failed) ---")
+        streamer.push("done", {})
+        print("--- Stream Complete ---")
         
     except Exception as e:
         print(f"Stream Error: {e}")
@@ -711,6 +822,63 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
             blocks = db_manager.get_memory_blocks(aid, limit=limit, block_type=btype)
             self._set_headers()
             self.wfile.write(json.dumps({'blocks': blocks}).encode('utf-8'))
+
+        elif self.path.startswith('/onboarding_status'):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            aid = (qs.get('actor_id') or [''])[0] or get_default_actor_id()
+            actor = db_manager.get_actor(aid)
+            manifest = (actor or {}).get('manifest_data', {}) or {}
+            persona = str(manifest.get('persona', '') or '').strip()
+            voice = str(manifest.get('voice_description', '') or '').strip()
+            model = str(manifest.get('llm_model', '') or '').strip()
+            dialogue_count = int(db_manager.get_dialogue_count(aid) or 0)
+            animation_count = int(db_manager.get_animation_count() or 0)
+            payload = {
+                "actor_id": aid,
+                "traits_present": bool(persona or voice or model),
+                "dialogue_count": dialogue_count,
+                "has_dialogue": dialogue_count > 0,
+                "animation_count": animation_count,
+                "has_indexed_animations": animation_count > 0,
+            }
+            self._set_headers()
+            self.wfile.write(json.dumps(payload).encode('utf-8'))
+
+        elif self.path.startswith('/preflight'):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            model = (qs.get('model') or [''])[0].strip()
+            cmd = [sys.executable, str(os.path.join(PROJECT_ROOT, "tools", "bootstrap.py")), "--check", "--json"]
+            if model:
+                cmd.extend(["--model", model])
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=PROJECT_ROOT,
+                    text=True,
+                    capture_output=True,
+                    timeout=120
+                )
+                out = (proc.stdout or "").strip()
+                err = (proc.stderr or "").strip()
+                data = None
+                for candidate in (out, err):
+                    if not candidate:
+                        continue
+                    try:
+                        data = json.loads(candidate)
+                        break
+                    except Exception:
+                        continue
+                if data is None:
+                    data = {"ok_count": 0, "total": 0, "all_passed": False, "checks": []}
+                data["returncode"] = proc.returncode
+                if err:
+                    data["stderr"] = err
+                self._set_headers(200)
+                self.wfile.write(json.dumps(data).encode('utf-8'))
+            except Exception as e:
+                self._set_headers(500)
+                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
 
         elif self.path == '/get_models':
             try:
@@ -879,6 +1047,62 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
             self._set_headers()
             self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
 
+        elif self.path == '/mind_maintenance':
+            content_length = int(self.headers.get('Content-Length', 0))
+            data = {}
+            if content_length > 0:
+                post_data = self.rfile.read(content_length)
+                data = json.loads(post_data.decode('utf-8'))
+
+            actor_id = data.get('actor_id') or get_default_actor_id()
+            apply_mode = bool(data.get('apply', True))
+            mode_flag = '--apply' if apply_mode else '--dry-run'
+
+            script_path = os.path.join(PROJECT_ROOT, 'tools', 'mind_maintenance.py')
+            cmd = [sys.executable, script_path, '--actor', actor_id, mode_flag]
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=PROJECT_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    check=False,
+                )
+            except Exception as e:
+                self._set_headers(500)
+                self.wfile.write(json.dumps({"error": f"Failed to run maintenance: {str(e)}"}).encode('utf-8'))
+                return
+
+            output = (proc.stdout or "").strip()
+            err = (proc.stderr or "").strip()
+            if proc.returncode != 0:
+                self._set_headers(500)
+                self.wfile.write(json.dumps({
+                    "error": "Mind maintenance failed.",
+                    "stdout": output,
+                    "stderr": err,
+                    "returncode": proc.returncode
+                }).encode('utf-8'))
+                return
+
+            summary = {}
+            for line in output.splitlines():
+                line = line.strip()
+                m = re.match(r"^- ([a-z_]+):\s+([0-9]+)$", line)
+                if m:
+                    summary[m.group(1)] = int(m.group(2))
+
+            self._set_headers()
+            self.wfile.write(json.dumps({
+                "status": "success",
+                "actor_id": actor_id,
+                "mode": "apply" if apply_mode else "dry-run",
+                "summary": summary,
+                "stdout": output,
+            }).encode('utf-8'))
+
         elif self.path == '/update_trait':
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
@@ -1031,18 +1255,42 @@ class ChatBridgeHandler(BaseHTTPRequestHandler):
 
 
 def cleanup_temp():
-    """Removes temporary files older than 24 hours."""
-    now = time.time()
+    """Fully purge runtime temp assets on startup (keeps .gitkeep if present)."""
     if not os.path.exists(TEMP_DIR):
+        os.makedirs(TEMP_DIR)
+        print(f"--- Storage Hygiene: Created {TEMP_DIR} (0 files) ---")
         return
-    
-    print(f"--- Storage Hygiene: Cleaning {TEMP_DIR} ---")
-    for f in os.listdir(TEMP_DIR):
-        fpath = os.path.join(TEMP_DIR, f)
-        if os.stat(fpath).st_mtime < now - 86400: # 24 hours
-            if os.path.isfile(fpath):
-                os.remove(fpath)
-                print(f"Deleted old asset: {f}")
+
+    deleted = 0
+    before = 0
+    for root, _, files in os.walk(TEMP_DIR):
+        for name in files:
+            if name == ".gitkeep":
+                continue
+            before += 1
+
+    print(f"--- Storage Hygiene: Cleaning {TEMP_DIR} ({before} files) ---")
+
+    for root, dirs, files in os.walk(TEMP_DIR, topdown=False):
+        for name in files:
+            if name == ".gitkeep":
+                continue
+            path = os.path.join(root, name)
+            try:
+                os.remove(path)
+                deleted += 1
+            except Exception as e:
+                print(f"Temp cleanup warning: failed to delete {path}: {e}")
+
+        for d in dirs:
+            dpath = os.path.join(root, d)
+            try:
+                os.rmdir(dpath)
+            except OSError:
+                # Directory not empty or protected; safe to ignore.
+                pass
+
+    print(f"--- Storage Hygiene: Removed {deleted} files ---")
 
 # --- ANIMATION SCANNER ---
 def scan_and_clean_animations():
@@ -1111,7 +1359,6 @@ def run_server(port=8001):
     threading.Thread(target=idle_monitor, daemon=True).start()
     
     print(f"--- Chat Bridge running on port {port} ---")
-    print("Pre-requisite: ComfyUI must be running on port 8188.")
     httpd.serve_forever()
 
 if __name__ == "__main__":

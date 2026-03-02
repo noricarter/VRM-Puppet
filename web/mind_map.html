@@ -86,6 +86,36 @@
             border: 1px solid #222;
         }
 
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .mind-clean-btn {
+            border: 1px solid #3b3158;
+            background: rgba(163, 136, 238, 0.12);
+            color: #d9ccff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            letter-spacing: 0.6px;
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.12s ease;
+        }
+
+        .mind-clean-btn:hover {
+            background: rgba(163, 136, 238, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .mind-clean-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .status-dot {
             width: 6px;
             height: 6px;
@@ -438,9 +468,12 @@
                 <div class="nav-tab" onclick="location.href='index.html'">MIXER</div>
             </nav>
 
-            <div class="sync-status">
-                <div id="sync-dot" class="status-dot"></div>
-                <span id="sync-text">ESTABLISHING LINK...</span>
+            <div class="header-actions">
+                <button id="btn-mind-clean-mm" class="mind-clean-btn" title="Run Mind Cleanup">CLEAN MIND</button>
+                <div class="sync-status">
+                    <div id="sync-dot" class="status-dot"></div>
+                    <span id="sync-text">ESTABLISHING LINK...</span>
+                </div>
             </div>
         </header>
 

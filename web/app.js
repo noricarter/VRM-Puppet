@@ -5,6 +5,13 @@ import { mountPersonaEditor } from "./persona_editor.js";
 const BRIDGE_BASE = "http://localhost:8001";
 
 const IDLE_ANIM_BASE = "../assets/animations/idle";
+const DEFAULT_OVERLAY_TUNE = {
+  cheekSpanX: 0.04,
+  cheekY: 0.02,
+  cheekZ: 0.15,
+  cheekSize: 1.04,
+  cheekOpacity: 0.58,
+};
 
 // --- State
 let config = { tabs: [] };
@@ -19,12 +26,39 @@ let activeTabId = "chat";
 const state = {
   characterLoaded: false,
   loadedCharacterId: null,
+  moodTester: {
+    autoEnabled: true,
+    selectedMood: "neutral",
+    intensity: 1.0,
+    variation: 0.2,
+    overlayAuto: true,
+    emojiOverlay: "",
+    faceOverlay: "none",
+    overlayTune: {
+      ...DEFAULT_OVERLAY_TUNE,
+    },
+  },
   // animations UI state
   animations: {
     enabled: false,
     idleItems: [], // { label, url, kind: "loop"|"oneshot" }
     loaded: false,
     loading: false,
+  },
+  onboarding: {
+    characterLoadedPersisted: false,
+    preflightCompleted: false,
+    preflightPassed: false,
+    leftPanelOpened: false,
+    traitsSaved: false,
+    firstChatSent: false,
+    animationsScanned: false,
+    audioChecked: false,
+  },
+  preflight: {
+    running: false,
+    report: null,
+    error: "",
   },
 };
 
@@ -52,7 +86,10 @@ const sceneBlock = document.getElementById("sceneBlock");
 const btnExportRig = document.getElementById("btn-export-rig");
 
 // --- Side panel toggles
-document.getElementById("btn-open-left")?.addEventListener("click", () => panelLeft?.classList.toggle("open"));
+document.getElementById("btn-open-left")?.addEventListener("click", () => {
+  panelLeft?.classList.toggle("open");
+  if (state.characterLoaded) markOnboarding("leftPanelOpened", true);
+});
 document.getElementById("btn-open-right")?.addEventListener("click", () => panelRight?.classList.toggle("open"));
 document.querySelectorAll(".panel-close").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -74,6 +111,104 @@ function setStatus(msg) {
   if (sceneStatus) sceneStatus.textContent = msg;
 }
 
+function getOnboardingStorageKey(actorId) {
+  return `onboarding_${actorId || "unknown"}`;
+}
+
+function loadOnboarding(actorId) {
+  state.onboarding = {
+    characterLoadedPersisted: false,
+    preflightCompleted: false,
+    preflightPassed: false,
+    leftPanelOpened: false,
+    traitsSaved: false,
+    firstChatSent: false,
+    animationsScanned: false,
+    audioChecked: false,
+  };
+  state.preflight = {
+    running: false,
+    report: null,
+    error: "",
+  };
+  if (!actorId) return;
+  try {
+    const raw = localStorage.getItem(getOnboardingStorageKey(actorId));
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    state.onboarding = { ...state.onboarding, ...parsed };
+  } catch {
+    // Ignore malformed stored state.
+  }
+}
+
+async function hydrateOnboardingFromBackend(actorId) {
+  if (!actorId) return;
+  try {
+    const url = `${BRIDGE_BASE}/onboarding_status?actor_id=${encodeURIComponent(actorId)}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.traits_present) state.onboarding.traitsSaved = true;
+    if (data.has_dialogue) state.onboarding.firstChatSent = true;
+    if (data.has_indexed_animations) state.onboarding.animationsScanned = true;
+    saveOnboarding(actorId);
+    refreshCharacterTabIfActive();
+  } catch {
+    // Non-fatal: keep local onboarding only.
+  }
+}
+
+function saveOnboarding(actorId) {
+  if (!actorId) return;
+  localStorage.setItem(getOnboardingStorageKey(actorId), JSON.stringify(state.onboarding));
+}
+
+function refreshCharacterTabIfActive() {
+  if (activeTabId !== "character") return;
+  renderTabContent(activeTabId);
+  renderPayloadPreview(buildPayloadForTab(activeTabId));
+}
+
+function markOnboarding(key, value = true) {
+  if (!(key in state.onboarding)) return;
+  if (state.onboarding[key] === value) return;
+  state.onboarding[key] = value;
+  saveOnboarding(getActiveActorId());
+  refreshCharacterTabIfActive();
+}
+
+async function runPreflightCheck(modelName) {
+  state.preflight.running = true;
+  state.preflight.error = "";
+  refreshCharacterTabIfActive();
+  try {
+    const url = `${BRIDGE_BASE}/preflight?model=${encodeURIComponent(modelName || "")}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error("Preflight endpoint not found on port 8001. Restart bridge/launch.py to load latest backend.");
+      }
+      throw new Error(`Preflight HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    state.preflight.report = data;
+    state.preflight.error = "";
+    markOnboarding("preflightCompleted", true);
+    markOnboarding("preflightPassed", !!(data.all_required_passed ?? data.all_passed));
+    return data;
+  } catch (err) {
+    state.preflight.error = String(err);
+    state.preflight.report = null;
+    markOnboarding("preflightCompleted", false);
+    markOnboarding("preflightPassed", false);
+    return null;
+  } finally {
+    state.preflight.running = false;
+    refreshCharacterTabIfActive();
+  }
+}
+
 function getActiveActorId() {
   return (
     state.loadedCharacterId ||
@@ -83,11 +218,94 @@ function getActiveActorId() {
   );
 }
 
+function sanitizeOverlayTune(raw) {
+  const src = (raw && typeof raw === "object") ? raw : {};
+  const readNum = (key, fallback) => {
+    const n = Number(src[key]);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  return {
+    cheekSpanX: clamp(readNum("cheekSpanX", DEFAULT_OVERLAY_TUNE.cheekSpanX), 0.02, 0.2),
+    cheekY: clamp(readNum("cheekY", DEFAULT_OVERLAY_TUNE.cheekY), -0.2, 0.1),
+    cheekZ: clamp(readNum("cheekZ", DEFAULT_OVERLAY_TUNE.cheekZ), -0.05, 0.25),
+    cheekSize: clamp(readNum("cheekSize", DEFAULT_OVERLAY_TUNE.cheekSize), 0.4, 2.0),
+    cheekOpacity: clamp(readNum("cheekOpacity", DEFAULT_OVERLAY_TUNE.cheekOpacity), 0.0, 2.0),
+  };
+}
+
+function getOverlayTuneStorageKey(actorId) {
+  return `mood_overlay_tune_${actorId || "unknown"}`;
+}
+
+function loadOverlayTuneLocal(actorId) {
+  try {
+    const raw = localStorage.getItem(getOverlayTuneStorageKey(actorId));
+    if (!raw) return { ...DEFAULT_OVERLAY_TUNE };
+    return sanitizeOverlayTune(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_OVERLAY_TUNE };
+  }
+}
+
+function applyOverlayTuneForActor(actorId) {
+  state.moodTester.overlayTune = loadOverlayTuneLocal(actorId);
+  viewer.setMoodOverlayTuning?.(state.moodTester.overlayTune);
+}
+
+let overlayTuneSaveTimer = null;
+function persistOverlayTuneForActor(actorId) {
+  if (!actorId) return;
+  localStorage.setItem(getOverlayTuneStorageKey(actorId), JSON.stringify(state.moodTester.overlayTune));
+  if (overlayTuneSaveTimer) clearTimeout(overlayTuneSaveTimer);
+  overlayTuneSaveTimer = setTimeout(() => {
+    saveTrait("mood_overlay_tune", state.moodTester.overlayTune).catch((e) =>
+      console.warn("Failed to persist mood overlay tune to backend:", e)
+    );
+  }, 250);
+}
+
+async function hydrateOverlayTuneFromBackend(actorId) {
+  if (!actorId) return;
+  try {
+    const res = await fetch(`${BRIDGE_BASE}/get_traits`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actor_id: actorId }),
+    });
+    if (!res.ok) return;
+    const traits = await res.json();
+    if (traits && typeof traits.mood_overlay_tune === "object") {
+      state.moodTester.overlayTune = sanitizeOverlayTune(traits.mood_overlay_tune);
+      localStorage.setItem(getOverlayTuneStorageKey(actorId), JSON.stringify(state.moodTester.overlayTune));
+      viewer.setMoodOverlayTuning?.(state.moodTester.overlayTune);
+      if (activeTabId === "moods") renderTabContent(activeTabId);
+    }
+  } catch (e) {
+    console.warn("Overlay tune backend hydration failed:", e);
+  }
+}
+
 function getTab(tabId) {
   return uiTabs.find((t) => t.id === tabId) || null;
 }
 function getActiveTab() {
   return getTab(activeTabId);
+}
+
+function isMixerTab(tabId) {
+  const tab = getTab(tabId);
+  const sliders = Array.isArray(tab?.sliders) ? tab.sliders : [];
+  return sliders.some((s) => {
+    const id = String(s?.id || "");
+    return id.startsWith("preset.") || id.startsWith("morph.");
+  });
+}
+
+function syncFaceAutoModeForTab(tabId) {
+  if (!state.characterLoaded) return;
+  // In mixer/preset tabs, freeze auto face morph layering so manual sliders are testable.
+  const shouldEnableAuto = !isMixerTab(tabId);
+  viewer.setFaceAutoExpressionsEnabled?.(shouldEnableAuto);
 }
 
 // TEMP: payload preview (remove next phase)
@@ -210,6 +428,7 @@ function renderTabs() {
 
     btn.onclick = () => {
       activeTabId = tab.id;
+      syncFaceAutoModeForTab(activeTabId);
       renderTabs();
       renderTabContent(tab.id);
       renderPayloadPreview(buildPayloadForTab(activeTabId));
@@ -238,25 +457,36 @@ function renderTabContent(tabId) {
   }
 
   if (tabId === "character") {
+    syncFaceAutoModeForTab(tabId);
     renderCharacterTab();
     return;
   }
 
   if (tabId === "animations") {
+    syncFaceAutoModeForTab(tabId);
     renderAnimationsTab();
     return;
   }
 
+  if (tabId === "moods") {
+    syncFaceAutoModeForTab(tabId);
+    renderMoodsTab();
+    return;
+  }
+
   if (tabId === "chat") {
+    syncFaceAutoModeForTab(tabId);
     renderChatTab();
     return;
   }
 
   if (tabId === "actions") {
+    syncFaceAutoModeForTab(tabId);
     renderActionsTab();
     return;
   }
 
+  syncFaceAutoModeForTab(tabId);
   renderSlidersForTab(tabId);
 }
 
@@ -289,6 +519,7 @@ function renderCharacterTab() {
     if (characterSelect) characterSelect.value = selectedId;
 
     await loadSelectedCharacter(selectedId);
+    syncFaceAutoModeForTab(activeTabId);
 
     // ✅ After character load: unlock ALL tabs immediately (no second gate).
     setStatus("Character loaded.");
@@ -301,8 +532,127 @@ function renderCharacterTab() {
     renderPayloadPreview(buildPayloadForTab(activeTabId));
   };
 
+  const effectiveOnboarding = {
+    preflightStepDone: state.onboarding.preflightCompleted || !!state.preflight.report,
+    characterLoaded: state.characterLoaded || state.onboarding.characterLoadedPersisted,
+    leftPanelOpened: state.onboarding.leftPanelOpened,
+    traitsSaved: state.onboarding.traitsSaved,
+    firstChatSent: state.onboarding.firstChatSent,
+    animationsScanned: state.animations.loaded || state.onboarding.animationsScanned,
+    audioChecked: state.onboarding.audioChecked,
+  };
+  const completedCount = Object.values(effectiveOnboarding).filter(Boolean).length;
+  const totalCount = Object.keys(effectiveOnboarding).length;
+  const supportedPreflightModels = ["ministral-3:8b", "ministral-3:3b", "ministral-3:14b"];
+  const savedPreflightModel = (localStorage.getItem("preflight_model") || "").trim();
+  const preflightModel = supportedPreflightModels.includes(savedPreflightModel)
+    ? savedPreflightModel
+    : supportedPreflightModels[0];
+  const preflightModelOptions = supportedPreflightModels
+    .map((m) => `<option value="${m}" ${m === preflightModel ? "selected" : ""}>${m}</option>`)
+    .join("");
+  const preflightReport = state.preflight.report;
+  const preflightSummary = preflightReport
+    ? `${preflightReport.required_ok_count ?? preflightReport.ok_count ?? 0}/${preflightReport.required_total ?? preflightReport.total ?? 0} required passed${(preflightReport.warning_fail_count ?? 0) > 0 ? `, ${preflightReport.warning_fail_count} warning(s)` : ""}`
+    : "Not run in this session";
+  const preflightRows = (preflightReport?.checks || []).map((c) => `
+    <div class="onboard-preflight-row ${c.ok ? "ok" : (c.severity === "warning" ? "warn" : "fail")}">
+      <span class="onboard-preflight-name">${c.name}</span>
+      <span class="onboard-preflight-badge ${c.severity === "warning" ? "warning" : "required"}">${c.severity === "warning" ? "warning" : "required"}</span>
+      <span class="onboard-preflight-detail">${c.detail}</span>
+      ${c.tooltip ? `<span class="onboard-preflight-tip" title="${c.tooltip}">ⓘ ${c.tooltip}</span>` : ""}
+      ${c.ok ? "" : `<span class="onboard-preflight-fix">${c.fix || ""}</span>`}
+    </div>
+  `).join("");
+
+  const checklist = document.createElement("div");
+  checklist.className = "onboard-card";
+  checklist.innerHTML = `
+    <div class="onboard-header">
+      <div class="onboard-title">Setup Wizard</div>
+      <div class="onboard-progress">${completedCount}/${totalCount} complete</div>
+    </div>
+    <div class="onboard-preflight">
+      <div class="onboard-preflight-head">
+        <div class="muted">Step 1: Run preflight</div>
+        <div class="onboard-preflight-summary">${preflightSummary}</div>
+      </div>
+      <div class="onboard-preflight-controls">
+        <select id="onboard-model-input" class="onboard-model-input">
+          ${preflightModelOptions}
+        </select>
+        <button id="onboard-run-preflight" class="secondary" type="button" ${state.preflight.running ? "disabled" : ""}>
+          ${state.preflight.running ? "Running..." : "Run Preflight"}
+        </button>
+      </div>
+      ${state.preflight.error ? `<div class="onboard-preflight-error">${state.preflight.error}</div>` : ""}
+      ${preflightRows ? `<div class="onboard-preflight-list">${preflightRows}</div>` : ""}
+    </div>
+    <div class="onboard-steps">
+      <label class="onboard-step ${effectiveOnboarding.preflightStepDone ? "done" : ""}">
+        <input type="checkbox" disabled ${effectiveOnboarding.preflightStepDone ? "checked" : ""}>
+        <span><strong>Step 1:</strong> Run preflight (warnings allowed)</span>
+      </label>
+      <label class="onboard-step ${effectiveOnboarding.characterLoaded ? "done" : ""}">
+        <input type="checkbox" disabled ${effectiveOnboarding.characterLoaded ? "checked" : ""}>
+        <span><strong>Step 2:</strong> Load character model</span>
+      </label>
+      <label class="onboard-step ${effectiveOnboarding.leftPanelOpened ? "done" : ""}">
+        <input type="checkbox" disabled ${effectiveOnboarding.leftPanelOpened ? "checked" : ""}>
+        <span><strong>Step 3:</strong> Open Character Editor (✏️)</span>
+      </label>
+      <label class="onboard-step ${effectiveOnboarding.traitsSaved ? "done" : ""}">
+        <input type="checkbox" disabled ${effectiveOnboarding.traitsSaved ? "checked" : ""}>
+        <span><strong>Step 4:</strong> Save persona/voice traits once</span>
+      </label>
+      <label class="onboard-step ${effectiveOnboarding.firstChatSent ? "done" : ""}">
+        <input type="checkbox" disabled ${effectiveOnboarding.firstChatSent ? "checked" : ""}>
+        <span><strong>Step 5:</strong> Send first chat</span>
+      </label>
+      <label class="onboard-step ${effectiveOnboarding.animationsScanned ? "done" : ""}">
+        <input type="checkbox" disabled ${effectiveOnboarding.animationsScanned ? "checked" : ""}>
+        <span><strong>Step 6:</strong> Open Animations tab (scan library)</span>
+      </label>
+      <label class="onboard-step ${effectiveOnboarding.audioChecked ? "done" : ""}">
+        <input id="onboard-audio-check" type="checkbox" ${effectiveOnboarding.audioChecked ? "checked" : ""}>
+        <span><strong>Step 7:</strong> I verified audio route (hear + speak)</span>
+      </label>
+    </div>
+    <div class="onboard-actions">
+      <button id="onboard-open-editor" class="secondary" type="button">Open Editor</button>
+      <button id="onboard-open-chat" class="secondary" type="button">Go Chat</button>
+      <button id="onboard-open-anims" class="secondary" type="button">Go Animations</button>
+    </div>
+  `;
+
+  checklist.querySelector("#onboard-audio-check")?.addEventListener("change", (e) => {
+    markOnboarding("audioChecked", e.target.checked);
+  });
+  checklist.querySelector("#onboard-run-preflight")?.addEventListener("click", async () => {
+    const model = checklist.querySelector("#onboard-model-input")?.value?.trim() || "";
+    localStorage.setItem("preflight_model", model || "ministral-3:8b");
+    await runPreflightCheck(model || "ministral-3:8b");
+  });
+  checklist.querySelector("#onboard-open-editor")?.addEventListener("click", () => {
+    panelLeft?.classList.add("open");
+    if (state.characterLoaded) markOnboarding("leftPanelOpened", true);
+  });
+  checklist.querySelector("#onboard-open-chat")?.addEventListener("click", () => {
+    activeTabId = "chat";
+    renderTabs();
+    renderTabContent(activeTabId);
+    renderPayloadPreview(buildPayloadForTab(activeTabId));
+  });
+  checklist.querySelector("#onboard-open-anims")?.addEventListener("click", () => {
+    activeTabId = "animations";
+    renderTabs();
+    renderTabContent(activeTabId);
+    renderPayloadPreview(buildPayloadForTab(activeTabId));
+  });
+
   wrap.appendChild(select);
   wrap.appendChild(btn);
+  wrap.appendChild(checklist);
   sliderBank.appendChild(wrap);
 }
 
@@ -412,6 +762,7 @@ function renderAnimationsTab() {
     state.animations.idleItems = items;
     state.animations.loaded = true;
     state.animations.loading = false;
+    markOnboarding("animationsScanned", true);
 
     // Configure idle pools on viewer side
     const loopUrls = items.filter((i) => i.kind === "loop").map((i) => i.url);
@@ -491,6 +842,327 @@ function renderAnimationsTab() {
 }
 
 // ---------------------------
+// Moods tab (Face expression tuning)
+// ---------------------------
+function renderMoodsTab() {
+  const wrap = document.createElement("div");
+  wrap.className = "character-select";
+  wrap.style.maxWidth = "760px";
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.gap = "12px";
+
+  const title = document.createElement("div");
+  title.className = "muted";
+  title.style.fontSize = "12px";
+  title.textContent = "Face Mood Tuning";
+
+  const moodOptions = [
+    { value: "neutral", label: "neutral" },
+    { value: "positive", label: "positive" },
+    { value: "negative_sad", label: "negative sad" },
+    { value: "negative_embarrassed", label: "negative embarrassed" },
+    { value: "negative_sad_embarrassed", label: "negative sad+embarrassed" },
+    { value: "negative_anger", label: "negative anger" },
+  ];
+  const moodValues = moodOptions.map((m) => m.value);
+
+  const rowTop = document.createElement("div");
+  rowTop.style.display = "flex";
+  rowTop.style.gap = "10px";
+  rowTop.style.alignItems = "center";
+  rowTop.style.flexWrap = "wrap";
+
+  const autoChk = document.createElement("input");
+  autoChk.type = "checkbox";
+  autoChk.checked = !!state.moodTester.autoEnabled;
+
+  const autoLbl = document.createElement("label");
+  autoLbl.className = "muted";
+  autoLbl.textContent = "Auto face mood enabled";
+
+  const moodSelect = document.createElement("select");
+  moodSelect.style.minWidth = "180px";
+  moodOptions.forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m.value;
+    opt.textContent = m.label;
+    moodSelect.appendChild(opt);
+  });
+  if (!moodValues.includes(state.moodTester.selectedMood)) {
+    state.moodTester.selectedMood = "neutral";
+  }
+  moodSelect.value = state.moodTester.selectedMood;
+
+  rowTop.appendChild(autoChk);
+  rowTop.appendChild(autoLbl);
+  rowTop.appendChild(moodSelect);
+
+  const makeSliderRow = (labelText, min, max, step, value) => {
+    const row = document.createElement("div");
+    row.style.display = "grid";
+    row.style.gridTemplateColumns = "140px 1fr 52px";
+    row.style.gap = "10px";
+    row.style.alignItems = "center";
+
+    const label = document.createElement("div");
+    label.className = "muted";
+    label.style.fontSize = "12px";
+    label.textContent = labelText;
+
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(value);
+
+    const val = document.createElement("div");
+    val.className = "muted";
+    val.style.textAlign = "right";
+    val.textContent = Number(value).toFixed(2);
+
+    row.appendChild(label);
+    row.appendChild(input);
+    row.appendChild(val);
+    return { row, input, val };
+  };
+
+  const intensityRow = makeSliderRow("Intensity", 0, 1, 0.01, state.moodTester.intensity);
+  const variationRow = makeSliderRow("Variation", 0, 1, 0.01, state.moodTester.variation);
+
+  const overlayRow = document.createElement("div");
+  overlayRow.style.display = "flex";
+  overlayRow.style.gap = "10px";
+  overlayRow.style.alignItems = "center";
+  overlayRow.style.flexWrap = "wrap";
+
+  const overlayAutoChk = document.createElement("input");
+  overlayAutoChk.type = "checkbox";
+  overlayAutoChk.checked = !!state.moodTester.overlayAuto;
+
+  const overlayAutoLbl = document.createElement("label");
+  overlayAutoLbl.className = "muted";
+  overlayAutoLbl.textContent = "Auto overlays by mood";
+
+  const emojiSelect = document.createElement("select");
+  emojiSelect.style.minWidth = "130px";
+  [
+    { value: "", label: "Emoji: none" },
+    { value: "💢", label: "Emoji: 💢 annoyed" },
+    { value: "!!!", label: "Emoji: !!! upset" },
+    { value: "💧", label: "Emoji: 💧 sad" },
+  ].forEach((item) => {
+    const opt = document.createElement("option");
+    opt.value = item.value;
+    opt.textContent = item.label;
+    emojiSelect.appendChild(opt);
+  });
+  emojiSelect.value = state.moodTester.emojiOverlay;
+
+  const faceOverlaySelect = document.createElement("select");
+  faceOverlaySelect.style.minWidth = "180px";
+  [
+    { value: "none", label: "Face FX: none" },
+    { value: "embarrassed_lines", label: "Face FX: embarrassed lines" },
+  ].forEach((item) => {
+    const opt = document.createElement("option");
+    opt.value = item.value;
+    opt.textContent = item.label;
+    faceOverlaySelect.appendChild(opt);
+  });
+  faceOverlaySelect.value = state.moodTester.faceOverlay;
+
+  overlayRow.appendChild(overlayAutoChk);
+  overlayRow.appendChild(overlayAutoLbl);
+  overlayRow.appendChild(emojiSelect);
+  overlayRow.appendChild(faceOverlaySelect);
+
+  const status = document.createElement("div");
+  status.className = "muted";
+  status.style.fontSize = "12px";
+  status.textContent = "Auto overlay map: sad -> 💧, embarrassed -> lines, sad+embarrassed -> both, anger -> 💢/!!!.";
+
+  const tuneTitle = document.createElement("div");
+  tuneTitle.className = "muted";
+  tuneTitle.style.fontSize = "12px";
+  tuneTitle.textContent = "Embarrassed Lines Placement";
+
+  const tuneSpanRow = makeSliderRow("Cheek Span X", 0.02, 0.2, 0.001, state.moodTester.overlayTune.cheekSpanX);
+  const tuneYRow = makeSliderRow("Cheek Y", -0.2, 0.1, 0.001, state.moodTester.overlayTune.cheekY);
+  const tuneZRow = makeSliderRow("Cheek Z", -0.05, 0.25, 0.001, state.moodTester.overlayTune.cheekZ);
+  const tuneSizeRow = makeSliderRow("Cheek Size", 0.4, 2.0, 0.01, state.moodTester.overlayTune.cheekSize);
+  const tuneOpacityRow = makeSliderRow("Cheek Opacity", 0.0, 2.0, 0.01, state.moodTester.overlayTune.cheekOpacity);
+
+  const resolveAutoOverlays = () => {
+    const mood = state.moodTester.selectedMood;
+    const intensity = state.moodTester.intensity;
+    if (mood === "negative_anger") {
+      return {
+        emoji: intensity >= 0.75 ? "!!!" : "💢",
+        face: "none",
+      };
+    }
+    if (mood === "negative_sad") {
+      return {
+        emoji: "💧",
+        face: "none",
+      };
+    }
+    if (mood === "negative_embarrassed") {
+      return {
+        emoji: "",
+        face: "embarrassed_lines",
+      };
+    }
+    if (mood === "negative_sad_embarrassed") {
+      return {
+        emoji: "💧",
+        face: "embarrassed_lines",
+      };
+    }
+    return { emoji: "", face: "none" };
+  };
+
+  const syncOverlayInputsDisabled = () => {
+    const disabled = !!state.moodTester.overlayAuto;
+    emojiSelect.disabled = disabled;
+    faceOverlaySelect.disabled = disabled;
+  };
+
+  const applyMoodState = () => {
+    if (!state.characterLoaded) return;
+    viewer.setFaceAutoExpressionsEnabled?.(state.moodTester.autoEnabled);
+    viewer.setFaceMoodVariationScale?.(state.moodTester.variation);
+    viewer.setFaceMood?.(state.moodTester.selectedMood, state.moodTester.intensity);
+
+    let emoji = state.moodTester.emojiOverlay;
+    let face = state.moodTester.faceOverlay;
+    if (state.moodTester.overlayAuto) {
+      const auto = resolveAutoOverlays();
+      emoji = auto.emoji;
+      face = auto.face;
+    }
+    viewer.setMoodEmojiOverlay?.(emoji, state.moodTester.intensity);
+    viewer.setMoodFaceOverlay?.(face, state.moodTester.intensity);
+    viewer.setMoodOverlayTuning?.(state.moodTester.overlayTune);
+  };
+
+  autoChk.addEventListener("change", () => {
+    state.moodTester.autoEnabled = autoChk.checked;
+    applyMoodState();
+  });
+
+  moodSelect.addEventListener("change", () => {
+    state.moodTester.selectedMood = moodSelect.value;
+    applyMoodState();
+  });
+
+  intensityRow.input.addEventListener("input", () => {
+    state.moodTester.intensity = Number(intensityRow.input.value);
+    intensityRow.val.textContent = state.moodTester.intensity.toFixed(2);
+    applyMoodState();
+  });
+
+  variationRow.input.addEventListener("input", () => {
+    state.moodTester.variation = Number(variationRow.input.value);
+    variationRow.val.textContent = state.moodTester.variation.toFixed(2);
+    applyMoodState();
+  });
+
+  overlayAutoChk.addEventListener("change", () => {
+    state.moodTester.overlayAuto = overlayAutoChk.checked;
+    syncOverlayInputsDisabled();
+    applyMoodState();
+  });
+
+  emojiSelect.addEventListener("change", () => {
+    state.moodTester.emojiOverlay = emojiSelect.value;
+    applyMoodState();
+  });
+
+  faceOverlaySelect.addEventListener("change", () => {
+    state.moodTester.faceOverlay = faceOverlaySelect.value;
+    applyMoodState();
+  });
+
+  tuneSpanRow.input.addEventListener("input", () => {
+    state.moodTester.overlayTune.cheekSpanX = Number(tuneSpanRow.input.value);
+    tuneSpanRow.val.textContent = state.moodTester.overlayTune.cheekSpanX.toFixed(3);
+    persistOverlayTuneForActor(getActiveActorId());
+    applyMoodState();
+  });
+
+  tuneYRow.input.addEventListener("input", () => {
+    state.moodTester.overlayTune.cheekY = Number(tuneYRow.input.value);
+    tuneYRow.val.textContent = state.moodTester.overlayTune.cheekY.toFixed(3);
+    persistOverlayTuneForActor(getActiveActorId());
+    applyMoodState();
+  });
+
+  tuneZRow.input.addEventListener("input", () => {
+    state.moodTester.overlayTune.cheekZ = Number(tuneZRow.input.value);
+    tuneZRow.val.textContent = state.moodTester.overlayTune.cheekZ.toFixed(3);
+    persistOverlayTuneForActor(getActiveActorId());
+    applyMoodState();
+  });
+
+  tuneSizeRow.input.addEventListener("input", () => {
+    state.moodTester.overlayTune.cheekSize = Number(tuneSizeRow.input.value);
+    tuneSizeRow.val.textContent = state.moodTester.overlayTune.cheekSize.toFixed(2);
+    persistOverlayTuneForActor(getActiveActorId());
+    applyMoodState();
+  });
+
+  tuneOpacityRow.input.addEventListener("input", () => {
+    state.moodTester.overlayTune.cheekOpacity = Number(tuneOpacityRow.input.value);
+    tuneOpacityRow.val.textContent = state.moodTester.overlayTune.cheekOpacity.toFixed(2);
+    persistOverlayTuneForActor(getActiveActorId());
+    applyMoodState();
+  });
+
+  const quickRow = document.createElement("div");
+  quickRow.style.display = "flex";
+  quickRow.style.flexWrap = "wrap";
+  quickRow.style.gap = "8px";
+  moodOptions.forEach((m) => {
+    const btn = document.createElement("button");
+    btn.className = "secondary";
+    btn.textContent = m.label;
+    btn.onclick = () => {
+      state.moodTester.selectedMood = m.value;
+      moodSelect.value = m.value;
+      applyMoodState();
+    };
+    quickRow.appendChild(btn);
+  });
+
+  const btnApply = document.createElement("button");
+  btnApply.className = "primary";
+  btnApply.textContent = "Apply Mood";
+  btnApply.onclick = applyMoodState;
+
+  wrap.appendChild(title);
+  wrap.appendChild(rowTop);
+  wrap.appendChild(intensityRow.row);
+  wrap.appendChild(variationRow.row);
+  wrap.appendChild(overlayRow);
+  wrap.appendChild(tuneTitle);
+  wrap.appendChild(tuneSpanRow.row);
+  wrap.appendChild(tuneYRow.row);
+  wrap.appendChild(tuneZRow.row);
+  wrap.appendChild(tuneSizeRow.row);
+  wrap.appendChild(tuneOpacityRow.row);
+  wrap.appendChild(quickRow);
+  wrap.appendChild(btnApply);
+  wrap.appendChild(status);
+
+  sliderBank.appendChild(wrap);
+  syncOverlayInputsDisabled();
+  applyMoodState();
+}
+
+// ---------------------------
 // Chat Tab (Interactive Test)
 // ---------------------------
 
@@ -560,7 +1232,7 @@ async function renderChatTab() {
   const voiceTitle = document.createElement("div");
   voiceTitle.className = "muted";
   voiceTitle.style.fontSize = "11px";
-  voiceTitle.textContent = "Voice Description (Qwen3-TTS)";
+  voiceTitle.textContent = "Voice Description (TTS)";
 
   const voiceInput = document.createElement("input");
   voiceInput.type = "text";
@@ -609,6 +1281,7 @@ async function renderChatTab() {
     await saveTrait("voice_description", voiceInput.value);
     await saveTrait("voice_reference_audio", voiceRefInput.value);
     await saveTrait("llm_model", modelSelect.value);
+    markOnboarding("traitsSaved", true);
     btnSave.textContent = "Saved 🛡️";
     setTimeout(() => btnSave.textContent = "Save Character Traits", 2000);
   };
@@ -860,6 +1533,8 @@ async function renderChatTab() {
         if (msg.type === 'audio') {
           audioQueue.push(msg.data);
           status.textContent = "Receiving audio stream...";
+        } else if (msg.type === 'assistant_text') {
+          status.textContent = "TTS unavailable, text-only response delivered.";
         } else if (msg.type === 'reasoning') {
           // Update Actions Tab Log if it's open
           addReasoningToLog(msg.data);
@@ -877,6 +1552,7 @@ async function renderChatTab() {
         } else if (msg.type === 'done') {
           console.log("Stream complete.");
           evtSource.close();
+          markOnboarding("firstChatSent", true);
           btnSend.disabled = false;
           btnSend.textContent = "Send Message";
           messageInput.value = "";
@@ -1150,6 +1826,12 @@ async function loadSelectedCharacter(characterId) {
 
   if (state.loadedCharacterId === entry.id) {
     state.characterLoaded = true;
+    loadOnboarding(entry.id);
+    applyOverlayTuneForActor(entry.id);
+    markOnboarding("characterLoadedPersisted", true);
+    await hydrateOnboardingFromBackend(entry.id);
+    await hydrateOverlayTuneFromBackend(entry.id);
+    document.getElementById('btn-mind-map').style.display = 'inline-flex';
     setStatus(`Loaded: ${entry.label ?? entry.id}`);
     return;
   }
@@ -1161,6 +1843,11 @@ async function loadSelectedCharacter(characterId) {
     const info = await viewer.loadVRMFromUrl(vrmUrl);
     state.loadedCharacterId = entry.id;
     state.characterLoaded = true;
+    loadOnboarding(entry.id);
+    applyOverlayTuneForActor(entry.id);
+    markOnboarding("characterLoadedPersisted", true);
+    await hydrateOnboardingFromBackend(entry.id);
+    await hydrateOverlayTuneFromBackend(entry.id);
     if (characterSelect) characterSelect.value = entry.id;
 
     // --- Persist for Mind Map ---
@@ -1327,6 +2014,11 @@ function buildUiTabs() {
     uiTabs.push({ id: "animations", label: "Animations", sliders: [] });
   }
 
+  // Moods tab (expression tuning)
+  if (!uiTabs.some((t) => t.id === "moods")) {
+    uiTabs.push({ id: "moods", label: "Moods 🙂", sliders: [] });
+  }
+
   // Chat tab (Interaction test)
   if (!uiTabs.some((t) => t.id === "chat")) {
     uiTabs.push({ id: "chat", label: "Chat 🧠🎙️", sliders: [] });
@@ -1364,6 +2056,8 @@ async function main() {
 
     buildUiTabs();
     await loadManifestIntoSceneSelect();
+    loadOnboarding(getActiveActorId());
+    await hydrateOnboardingFromBackend(getActiveActorId());
 
     activeTabId = "character";
     renderTabs();

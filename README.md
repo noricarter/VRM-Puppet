@@ -54,11 +54,21 @@ python -m venv venv
 source venv/bin/activate
 
 # Install Python dependencies
-pip install -r requirements.txt   # (or install manually — see below)
+pip install -r infrastructure/requirements.txt   # (or install manually — see below)
 
 # Key packages:
 # pip install faster-whisper pywebview pynput speechrecognition pillow torch torchvision
 ```
+
+Quickest setup + validation (recommended):
+```bash
+python tools/bootstrap.py --install --model ministral-3:8b
+```
+This creates/updates `venv`, installs dependencies, and runs a preflight on:
+- system tools (`ffmpeg`, `scrot`, `rhubarb`)
+- Ollama reachability + model availability
+- critical Python modules (`speech_recognition`, `faster_whisper`, `pywebview`, etc.)
+- CUDA visibility from `torch`
 
 > **Note:** `venv/` is gitignored. You must create it locally.
 > Binary assets (VRM models, FBX animations, voice WAVs) are also gitignored — see [Creating Your Character](#creating-your-character).
@@ -256,7 +266,7 @@ The mic is automatically **muted while the AI is speaking** to prevent the AI fr
 
 **Config in `main.py`:**
 ```python
-WHISPER_MODEL_SIZE = 'large-v3'      # STT model (tiny/base/small/medium/large-v3)
+WHISPER_MODEL_SIZE = 'medium'      # STT model (tiny/base/small/medium/large-v3)
 WHISPER_COMPUTE_TYPE = 'int8_float16' # VRAM mode (float16 = quality, int8 = efficiency)
 ```
 
@@ -304,7 +314,7 @@ If you want to use the Standalone HUD App to puppeteer the AI inside a Discord v
 
 | File | Setting | Default | Effect |
 |---|---|---|---|
-| `standalone_app/main.py` | `WHISPER_MODEL_SIZE` | `large-v3` | STT accuracy vs speed |
+| `standalone_app/main.py` | `WHISPER_MODEL_SIZE` | `medium` | STT accuracy vs speed |
 | `standalone_app/main.py` | `WHISPER_COMPUTE_TYPE` | `int8_float16` | VRAM usage (~3 GB vs ~6.5 GB) |
 | `standalone_app/main.py` | `CAPTURE_MONITOR` | `('DP-1', 1920, 0, 1920, 1080)` | Which screen Observer watches |
 | `launch.py` | `BRIDGE_CMD` | `core/chat_bridge.py` | Headless engine entrypoint |

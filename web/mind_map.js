@@ -310,6 +310,47 @@ window.saveInterest = () => {
     closeInterestModal();
 };
 
+async function runMindCleanupFromMindMap() {
+    const actor = localStorage.getItem('active_actor_id') || DEFAULT_ACTOR;
+    if (!confirm(`Run mind cleanup for ${actor}?`)) return;
+
+    const btn = document.getElementById('btn-mind-clean-mm');
+    const oldText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'RUNNING...';
+    }
+    updateSyncStatus(false, "Mind Cleanup Running...");
+
+    try {
+        const resp = await fetch(`${BRIDGE_URL}/mind_maintenance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actor_id: actor, apply: true })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+
+        const summary = data?.summary || {};
+        updateSyncStatus(
+            true,
+            `Mind Cleaned: merge ${summary.subjects_merged ?? 0}, invert ${summary.relations_inverted ?? 0}, prune ${summary.memory_rows_deleted ?? 0}`
+        );
+        await refreshAll();
+    } catch (err) {
+        console.error("[MindMap] Mind cleanup failed:", err);
+        updateSyncStatus(false, `Mind Cleanup Failed: ${String(err)}`);
+        alert(`Mind cleanup failed: ${String(err)}`);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = oldText || 'CLEAN MIND';
+        }
+    }
+}
+
+document.getElementById('btn-mind-clean-mm')?.addEventListener('click', runMindCleanupFromMindMap);
+
 function updateSyncStatus(active, text) {
     const dot = document.getElementById('sync-dot');
     const label = document.getElementById('sync-text');
